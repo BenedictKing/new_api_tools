@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/pkg/jwt"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/pkg/jwt"
 )
 
 // AuthMiddleware JWT 认证中间件

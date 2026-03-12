@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/models"
 )
 
 // SystemService 系统管理服务

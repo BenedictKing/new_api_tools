@@ -7,16 +7,15 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/internal/models"
-	"github.com/ketches/new-api-tools/internal/service"
-	"github.com/ketches/new-api-tools/pkg/geoip"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"go.uber.org/zap"
 )
 
 // Service instances
 var (
-	topUpService      = service.NewTopUpService()
 	redemptionService = service.NewRedemptionService()
 	userService       = service.NewUserService()
 	riskService       = service.NewRiskService()
@@ -60,13 +59,13 @@ func isSupportedWindow(window string) bool {
 
 // GetTopUpsHandler 获取充值记录列表
 func GetTopUpsHandler(c *gin.Context) {
-	query := &service.TopUpQuery{}
+	query := &service.ListTopUpParams{}
 	if err := c.ShouldBindQuery(query); err != nil {
 		Error(c, 400, "参数错误")
 		return
 	}
 
-	data, err := topUpService.GetTopUps(query)
+	data, err := service.ListTopUpRecords(*query)
 	if err != nil {
 		logger.Error("获取充值记录失败", zap.Error(err))
 		Error(c, 500, "获取充值记录失败")
@@ -78,7 +77,10 @@ func GetTopUpsHandler(c *gin.Context) {
 
 // GetTopUpStatisticsHandler 获取充值统计
 func GetTopUpStatisticsHandler(c *gin.Context) {
-	data, err := topUpService.GetTopUpStatistics()
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
+	data, err := service.GetTopUpStatistics(startDate, endDate)
 	if err != nil {
 		logger.Error("获取充值统计失败", zap.Error(err))
 		Error(c, 500, "获取充值统计失败")
@@ -90,7 +92,7 @@ func GetTopUpStatisticsHandler(c *gin.Context) {
 
 // GetPaymentMethodsHandler 获取支付方式统计
 func GetPaymentMethodsHandler(c *gin.Context) {
-	data, err := topUpService.GetPaymentMethods()
+	data, err := service.GetPaymentMethods()
 	if err != nil {
 		logger.Error("获取支付方式统计失败", zap.Error(err))
 		Error(c, 500, "获取支付方式统计失败")
@@ -108,7 +110,7 @@ func RefundTopUpHandler(c *gin.Context) {
 		return
 	}
 
-	if err := topUpService.RefundTopUp(id); err != nil {
+	if err := service.RefundTopUp(int64(id)); err != nil {
 		logger.Error("退款失败", zap.Error(err))
 		Error(c, 500, err.Error())
 		return
@@ -116,7 +118,6 @@ func RefundTopUpHandler(c *gin.Context) {
 
 	Success(c, gin.H{"message": "退款成功"})
 }
-
 // ==================== Redemption Handlers ====================
 
 // GetRedemptionsHandler 获取兑换码列表

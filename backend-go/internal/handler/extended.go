@@ -6,16 +6,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	appcache "github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/internal/service"
-	"github.com/ketches/new-api-tools/internal/tasks"
+	appcache "github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/BenedictKing/new_api_tools/internal/tasks"
 	"go.uber.org/zap"
 )
 
 // Service instances for new modules
 var (
-	aiBanService       = service.NewAIBanService()
+	aiBanService       = service.NewAIAutoBanService()
 	analyticsService   = service.NewAnalyticsService()
 	modelStatusService = service.NewModelStatusService()
 	systemService      = service.NewSystemService()
@@ -50,6 +50,34 @@ func stringInSlice(v string, list []string) bool {
 	return false
 }
 
+func toString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func toInt64(v interface{}) int64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case float64:
+		return int64(val)
+	case string:
+		i, _ := strconv.ParseInt(val, 10, 64)
+		return i
+	}
+	return 0
+}
+
 func intInSlice(v int, list []int) bool {
 	for _, x := range list {
 		if x == v {
@@ -63,25 +91,19 @@ func intInSlice(v int, list []int) bool {
 
 // GetAIBanConfigHandler 获取 AI 封禁配置
 func GetAIBanConfigHandler(c *gin.Context) {
-	data, err := aiBanService.GetConfig()
-	if err != nil {
-		logger.Error("获取 AI 封禁配置失败", zap.Error(err))
-		Error(c, 500, "获取配置失败")
-		return
-	}
-
+	data := aiBanService.GetConfig()
 	Success(c, data)
 }
 
 // UpdateAIBanConfigHandler 更新 AI 封禁配置
 func UpdateAIBanConfigHandler(c *gin.Context) {
-	var config service.AIBanConfig
+	var config map[string]interface{}
 	if err := c.ShouldBindJSON(&config); err != nil {
 		Error(c, 400, "参数错误")
 		return
 	}
 
-	if err := aiBanService.UpdateConfig(&config); err != nil {
+	if err := aiBanService.SaveConfig(config); err != nil {
 		logger.Error("更新 AI 封禁配置失败", zap.Error(err))
 		Error(c, 500, err.Error())
 		return
@@ -92,21 +114,26 @@ func UpdateAIBanConfigHandler(c *gin.Context) {
 
 // TestAIModelHandler 测试 AI 模型
 func TestAIModelHandler(c *gin.Context) {
-	data, err := aiBanService.TestModel()
-	if err != nil {
-		logger.Error("测试 AI 模型失败", zap.Error(err))
-		Error(c, 500, err.Error())
+	// TestModel 需要参数
+	apiKey := c.Query("api_key")
+	baseURL := c.Query("base_url")
+	model := c.Query("model")
+
+	if apiKey == "" || baseURL == "" || model == "" {
+		Error(c, 400, "缺少必要参数: api_key, base_url, model")
 		return
 	}
 
+	data := aiBanService.TestModel(apiKey, baseURL, model)
 	Success(c, data)
 }
 
 // GetSuspiciousUsersHandler 获取可疑用户
 func GetSuspiciousUsersHandler(c *gin.Context) {
+	window := c.DefaultQuery("window", "24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 
-	data, err := aiBanService.GetSuspiciousUsers(limit)
+	data, err := aiBanService.GetSuspiciousUsers(window, limit)
 	if err != nil {
 		logger.Error("获取可疑用户失败", zap.Error(err))
 		Error(c, 500, "获取可疑用户失败")
@@ -136,10 +163,10 @@ func AssessUserRiskHandler(c *gin.Context) {
 		req.Window = "1h"
 	}
 
-	data, err := aiBanService.AssessUserRisk(req.UserID)
-	if err != nil {
-		logger.Error("评估用户风险失败", zap.Error(err))
-		Error(c, 500, err.Error())
+	data := aiBanService.ManualAssess(int64(req.UserID), req.Window)
+	if errMsg, ok := data["error"]; ok {
+		logger.Error("评估用户风险失败", zap.String("error", errMsg.(string)))
+		Error(c, 500, errMsg.(string))
 		return
 	}
 
@@ -148,7 +175,10 @@ func AssessUserRiskHandler(c *gin.Context) {
 
 // ScanUsersHandler 扫描用户
 func ScanUsersHandler(c *gin.Context) {
-	data, err := aiBanService.ScanUsers()
+	window := c.DefaultQuery("window", "24h")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+
+	data, err := aiBanService.GetSuspiciousUsers(window, limit)
 	if err != nil {
 		logger.Error("扫描用户失败", zap.Error(err))
 		Error(c, 500, "扫描失败")
@@ -160,13 +190,7 @@ func ScanUsersHandler(c *gin.Context) {
 
 // GetWhitelistHandler 获取白名单
 func GetWhitelistHandler(c *gin.Context) {
-	data, err := aiBanService.GetWhitelist()
-	if err != nil {
-		logger.Error("获取白名单失败", zap.Error(err))
-		Error(c, 500, "获取白名单失败")
-		return
-	}
-
+	data := aiBanService.GetWhitelist()
 	Success(c, data)
 }
 
@@ -181,9 +205,10 @@ func AddToWhitelistHandler(c *gin.Context) {
 		return
 	}
 
-	if err := aiBanService.AddToWhitelist(req.UserID, req.Reason); err != nil {
-		logger.Error("添加白名单失败", zap.Error(err))
-		Error(c, 500, err.Error())
+	result := aiBanService.AddToWhitelist(int64(req.UserID))
+	if errMsg, ok := result["error"]; ok {
+		logger.Error("添加白名单失败", zap.String("error", errMsg.(string)))
+		Error(c, 500, errMsg.(string))
 		return
 	}
 
@@ -199,11 +224,14 @@ func RemoveFromWhitelistHandler(c *gin.Context) {
 		Error(c, 400, "参数错误")
 		return
 	}
-	if err := aiBanService.RemoveFromWhitelist(req.UserID); err != nil {
-		logger.Error("移除白名单失败", zap.Error(err))
-		Error(c, 500, err.Error())
+
+	result := aiBanService.RemoveFromWhitelist(int64(req.UserID))
+	if errMsg, ok := result["error"]; ok {
+		logger.Error("移除白名单失败", zap.String("error", errMsg.(string)))
+		Error(c, 500, errMsg.(string))
 		return
 	}
+
 	Success(c, gin.H{"message": "移除成功"})
 }
 
@@ -214,7 +242,7 @@ func SearchWhitelistHandler(c *gin.Context) {
 	if keyword == "" {
 		keyword = c.Query("keyword")
 	}
-	data, err := aiBanService.SearchWhitelist(keyword)
+	data, err := aiBanService.SearchUserForWhitelist(keyword)
 	if err != nil {
 		Error(c, 500, "搜索失败")
 		return
@@ -226,18 +254,16 @@ func SearchWhitelistHandler(c *gin.Context) {
 func GetAuditLogsHandler(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	data, err := aiBanService.GetAuditLogs(page, pageSize)
-	if err != nil {
-		Error(c, 500, "获取审计日志失败")
-		return
-	}
+	status := c.DefaultQuery("status", "")
+	data := aiBanService.GetAuditLogs(page, pageSize, status)
 	Success(c, data)
 }
 
 // DeleteAuditLogsHandler 删除审计日志
 func DeleteAuditLogsHandler(c *gin.Context) {
-	if err := aiBanService.DeleteAuditLogs(); err != nil {
-		Error(c, 500, "删除失败")
+	data := aiBanService.ClearAuditLogs()
+	if errMsg, ok := data["error"]; ok {
+		Error(c, 500, errMsg.(string))
 		return
 	}
 	Success(c, gin.H{"message": "删除成功"})
@@ -245,9 +271,9 @@ func DeleteAuditLogsHandler(c *gin.Context) {
 
 // TestConnectionHandler 测试 AI 连接
 func TestConnectionHandler(c *gin.Context) {
-	data, err := aiBanService.TestConnection()
-	if err != nil {
-		Error(c, 500, err.Error())
+	data := aiBanService.TestConnection()
+	if errMsg, ok := data["error"]; ok {
+		Error(c, 500, errMsg.(string))
 		return
 	}
 	Success(c, data)
@@ -255,8 +281,9 @@ func TestConnectionHandler(c *gin.Context) {
 
 // ResetAPIHealthHandler 重置 API 健康状态
 func ResetAPIHealthHandler(c *gin.Context) {
-	if err := aiBanService.ResetAPIHealth(); err != nil {
-		Error(c, 500, err.Error())
+	data := aiBanService.ResetAPIHealth()
+	if errMsg, ok := data["error"]; ok {
+		Error(c, 500, errMsg.(string))
 		return
 	}
 	Success(c, gin.H{"message": "重置成功"})
@@ -388,7 +415,7 @@ func ResetAnalyticsHandler(c *gin.Context) {
 
 // GetAvailableModelsHandler 获取可用模型
 func GetAvailableModelsHandler(c *gin.Context) {
-	data, err := modelStatusService.GetAvailableModelsWithStats24h()
+	data, err := modelStatusService.GetAvailableModels()
 	if err != nil {
 		logger.Error("获取可用模型失败", zap.Error(err))
 		Error(c, 500, "获取模型失败")
@@ -406,20 +433,24 @@ func GetModelStatusHandler(c *gin.Context) {
 	}
 
 	window := c.DefaultQuery("window", defaultModelStatusTimeWindow)
-	noCache, _ := strconv.ParseBool(c.DefaultQuery("no_cache", "false"))
 	if !stringInSlice(window, modelStatusAvailableTimeWindows) {
 		c.JSON(200, gin.H{"success": false, "message": "无效的时间窗口"})
 		return
 	}
 
-	data, err := modelStatusService.GetModelStatusItem(modelName, window, !noCache)
+	data, err := modelStatusService.GetModelStatus(modelName, window)
 	if err != nil {
 		logger.Error("获取模型状态失败", zap.Error(err))
 		c.JSON(200, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
-	if data == nil || data.TotalRequests == 0 {
+	totalRequests := int64(0)
+	if tr, ok := data["total_requests"]; ok {
+		totalRequests = toInt64(tr)
+	}
+
+	if data == nil || totalRequests == 0 {
 		c.JSON(200, gin.H{
 			"success": false,
 			"message": "Model not found or has no recent logs",
@@ -433,7 +464,6 @@ func GetModelStatusHandler(c *gin.Context) {
 // BatchGetModelStatusHandler 批量获取模型状态
 func BatchGetModelStatusHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", defaultModelStatusTimeWindow)
-	noCache, _ := strconv.ParseBool(c.DefaultQuery("no_cache", "false"))
 	if !stringInSlice(window, modelStatusAvailableTimeWindows) {
 		c.JSON(200, gin.H{"success": false, "message": "无效的时间窗口"})
 		return
@@ -460,7 +490,7 @@ func BatchGetModelStatusHandler(c *gin.Context) {
 		modelNames = arr
 	}
 
-	items, err := modelStatusService.GetMultipleModelsStatusItems(modelNames, window, !noCache)
+	items, err := modelStatusService.GetMultipleModelsStatus(modelNames, window)
 	if err != nil {
 		logger.Error("批量获取模型状态失败", zap.Error(err))
 		Error(c, 500, "获取状态失败")
@@ -480,9 +510,10 @@ func GetSelectedModelsHandler(c *gin.Context) {
 	mgr := appcache.GetCacheManager()
 	var selected []string
 	if err := mgr.Get(modelStatusSelectedModelsKey, &selected); err != nil || len(selected) == 0 {
-		available, _ := modelStatusService.GetAvailableModelsWithStats24h()
+		available, _ := modelStatusService.GetAvailableModels()
 		for _, m := range available {
-			selected = append(selected, m.ModelName)
+			modelName := toString(m["model_name"])
+			selected = append(selected, modelName)
 		}
 		_ = mgr.Set(modelStatusSelectedModelsKey, selected, 365*24*time.Hour)
 	}
@@ -590,13 +621,12 @@ func GetTimeWindowsHandler(c *gin.Context) {
 // GetAllModelStatusHandler 获取所有模型状态
 func GetAllModelStatusHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", defaultModelStatusTimeWindow)
-	noCache, _ := strconv.ParseBool(c.DefaultQuery("no_cache", "false"))
 	if !stringInSlice(window, modelStatusAvailableTimeWindows) {
 		c.JSON(200, gin.H{"success": false, "message": "无效的时间窗口"})
 		return
 	}
 
-	available, err := modelStatusService.GetAvailableModelsWithStats24h()
+	available, err := modelStatusService.GetAvailableModels()
 	if err != nil {
 		Error(c, 500, "获取失败")
 		return
@@ -604,10 +634,11 @@ func GetAllModelStatusHandler(c *gin.Context) {
 
 	modelNames := make([]string, 0, len(available))
 	for _, m := range available {
-		modelNames = append(modelNames, m.ModelName)
+		modelName := toString(m["model_name"])
+		modelNames = append(modelNames, modelName)
 	}
 
-	items, err := modelStatusService.GetMultipleModelsStatusItems(modelNames, window, !noCache)
+	items, err := modelStatusService.GetMultipleModelsStatus(modelNames, window)
 	if err != nil {
 		Error(c, 500, "获取失败")
 		return
@@ -997,7 +1028,7 @@ func GetTopUpByIDHandler(c *gin.Context) {
 		Error(c, 400, "无效的 ID")
 		return
 	}
-	data, err := topUpService.GetTopUpByID(id)
+	data, err := service.GetTopUpByID(int64(id))
 	if err != nil {
 		Error(c, 500, err.Error())
 		return

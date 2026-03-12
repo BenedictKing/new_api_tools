@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/models"
 )
 
 // 全局计数器，用于结构化 key 生成

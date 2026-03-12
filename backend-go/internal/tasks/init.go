@@ -3,7 +3,7 @@ package tasks
 import (
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
 )
 
 // InitTasks 初始化所有后台任务

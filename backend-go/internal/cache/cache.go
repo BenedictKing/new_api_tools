@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -58,6 +58,51 @@ func Init(cfg *config.Config) error {
 // GetClient 获取 Redis 客户端
 func GetClient() *redis.Client {
 	return rdb
+}
+
+// Manager 提供与 backend 兼容的缓存管理器接口
+type Manager struct{}
+
+// GetManager 返回全局缓存管理器实例（兼容 backend API）
+func GetManager() *Manager {
+	return &Manager{}
+}
+
+// RedisClient 返回 Redis 客户端（兼容 backend API）
+func (m *Manager) RedisClient() *redis.Client {
+	return rdb
+}
+
+// Set 设置缓存（兼容 backend API）
+func (m *Manager) Set(key string, value interface{}, ttl time.Duration) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("序列化缓存数据失败: %w", err)
+	}
+	return rdb.Set(ctx, key, data, ttl).Err()
+}
+
+// GetJSON 获取并反序列化 JSON 缓存（兼容 backend API）
+// 返回 (found bool, error)
+func (m *Manager) GetJSON(key string, dest interface{}) (bool, error) {
+	data, err := rdb.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return false, nil
+		}
+		return false, fmt.Errorf("获取缓存失败: %w", err)
+	}
+
+	if err := json.Unmarshal(data, dest); err != nil {
+		return false, fmt.Errorf("反序列化缓存数据失败: %w", err)
+	}
+
+	return true, nil
+}
+
+// Delete 删除缓存（兼容 backend API）
+func (m *Manager) Delete(key string) error {
+	return rdb.Del(ctx, key).Err()
 }
 
 // Close 关闭 Redis 连接

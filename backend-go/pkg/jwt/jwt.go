@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/ketches/new-api-tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/config"
 )
 
 // Claims JWT 声明

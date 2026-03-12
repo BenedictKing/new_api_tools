@@ -10,16 +10,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ketches/new-api-tools/frontend"
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/handler"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/internal/middleware"
-	"github.com/ketches/new-api-tools/internal/tasks"
-	"github.com/ketches/new-api-tools/pkg/geoip"
-	"github.com/ketches/new-api-tools/pkg/jwt"
+	"github.com/BenedictKing/new_api_tools/frontend"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/handler"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/middleware"
+	"github.com/BenedictKing/new_api_tools/internal/tasks"
+	"github.com/BenedictKing/new_api_tools/pkg/geoip"
+	"github.com/BenedictKing/new_api_tools/pkg/jwt"
 	"go.uber.org/zap"
 )
 
@@ -246,6 +246,9 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 				aiBan.POST("/reset-api-health", handler.ResetAPIHealthHandler)
 				aiBan.POST("/models", handler.UpdateAIModelsHandler)
 			}
+
+			// LinuxDo Lookup
+			handler.RegisterLinuxDoLookupRoutes(authenticated)
 
 			// 日志分析
 			analytics := authenticated.Group("/analytics")

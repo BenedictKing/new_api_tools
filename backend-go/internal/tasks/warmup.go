@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/internal/service"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/service"
 	"go.uber.org/zap"
 )
 

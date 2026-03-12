@@ -5,9 +5,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/models"
 )
 
 // DashboardService Dashboard 服务
@@ -115,12 +115,12 @@ func (s *DashboardService) fetchOverviewData() (*OverviewData, error) {
 		Distinct("abilities.model").
 		Count(&data.TotalModels)
 
-	// 兑换码总数
-	db.Model(&models.Redemption{}).Where("deleted_at IS NULL").Count(&data.TotalRedemptions)
+	// 兑换码总数（NewAPI redemptions 表没有 deleted_at 字段）
+	db.Model(&models.Redemption{}).Count(&data.TotalRedemptions)
 
 	// 未使用的兑换码（status = 1 表示启用/未使用）
 	db.Model(&models.Redemption{}).
-		Where("deleted_at IS NULL AND status = ?", models.RedemptionStatusEnabled).
+		Where("status = ?", models.RedemptionStatusEnabled).
 		Count(&data.UnusedRedemptions)
 
 	return data, nil

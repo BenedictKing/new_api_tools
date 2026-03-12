@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/pkg/jwt"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/pkg/jwt"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )

@@ -109,3 +109,44 @@ func Fatalf(template string, args ...interface{}) {
 	GetSugar().Fatalf(template, args...)
 	os.Exit(1)
 }
+
+// AppLogger 提供与 backend 兼容的日志接口
+type AppLogger struct{}
+
+// L 是全局 AppLogger 实例（兼容 backend API）
+var L = &AppLogger{}
+
+// Debug 记录调试日志
+func (l *AppLogger) Debug(msg string, category ...string) {
+	Debug(msg)
+}
+
+// Info 记录信息日志
+func (l *AppLogger) Info(msg string, category ...string) {
+	Info(msg)
+}
+
+// Error 记录错误日志
+func (l *AppLogger) Error(msg string, category ...string) {
+	Error(msg)
+}
+
+// Business 记录业务日志
+func (l *AppLogger) Business(msg string) {
+	Info(msg)
+}
+
+// System 记录系统日志
+func (l *AppLogger) System(msg string) {
+	Info(msg)
+}
+
+// Warn 记录警告日志
+func (l *AppLogger) Warn(msg string, category ...string) {
+	Warn(msg)
+}
+
+// Security 记录安全日志
+func (l *AppLogger) Security(msg string) {
+	Warn(msg, zap.String("category", "security"))
+}

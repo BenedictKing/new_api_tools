@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"github.com/oschwald/geoip2-golang"
 	"go.uber.org/zap"
 )

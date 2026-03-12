@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/cache"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/models"
-	"github.com/ketches/new-api-tools/pkg/geoip"
+	"github.com/BenedictKing/new_api_tools/internal/cache"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"gorm.io/gorm"
 )
 

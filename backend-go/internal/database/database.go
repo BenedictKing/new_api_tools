@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"

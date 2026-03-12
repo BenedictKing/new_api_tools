@@ -9,39 +9,37 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/config"
-	"github.com/ketches/new-api-tools/internal/logger"
-	"github.com/ketches/new-api-tools/internal/service"
-	"github.com/ketches/new-api-tools/pkg/geoip"
+	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"go.uber.org/zap"
 )
 
 // AIBanScanTask AI 自动封禁扫描任务
 // 定时扫描可疑用户并进行风险评估
 func AIBanScanTask(ctx context.Context) error {
-	aiBanService := service.NewAIBanService()
+	aiBanService := service.NewAIAutoBanService()
 
 	// 检查 AI 封禁是否启用
-	cfg, err := aiBanService.GetConfig()
-	if err != nil {
-		return err
-	}
+	cfg := aiBanService.GetConfig()
+	enabled, _ := cfg["enabled"].(bool)
 
-	if !cfg.Enabled {
+	if !enabled {
 		logger.Debug("AI 自动封禁未启用，跳过扫描")
 		return nil
 	}
 
-	// 执行扫描
-	result, err := aiBanService.ScanUsers()
+	// 执行扫描 - 使用 GetSuspiciousUsers 替代 ScanUsers
+	window := "24h"
+	limit := 100
+	users, err := aiBanService.GetSuspiciousUsers(window, limit)
 	if err != nil {
 		return err
 	}
 
 	logger.Info("AI 自动封禁扫描完成",
-		zap.Int("scanned", result.ScannedUsers),
-		zap.Int("suspicious", result.SuspiciousCount),
-		zap.Int("banned", result.AutoBannedCount))
+		zap.Int("suspicious", len(users)))
 
 	return nil
 }

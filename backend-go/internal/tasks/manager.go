@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ketches/new-api-tools/internal/logger"
+	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"go.uber.org/zap"
 )
 

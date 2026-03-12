@@ -120,7 +120,7 @@ func mapStatusToUptimeKuma(successRate float64, totalRequests int64) int {
 
 // GetStatusPageConfig 获取状态页配置（uptime-kuma 格式）
 func (s *UptimeKumaService) GetStatusPageConfig(slug, window string) (*StatusPageData, error) {
-	models, err := s.modelStatusService.GetAvailableModelsWithStats24h()
+	models, err := s.modelStatusService.GetAvailableModels()
 	if err != nil {
 		return nil, err
 	}
@@ -128,10 +128,10 @@ func (s *UptimeKumaService) GetStatusPageConfig(slug, window string) (*StatusPag
 	// 获取所有模型状态
 	names := make([]string, len(models))
 	for i, m := range models {
-		names[i] = m.ModelName
+		names[i] = toString(m["model_name"])
 	}
 
-	statuses, err := s.modelStatusService.GetMultipleModelsStatusItems(names, window, true)
+	statuses, err := s.modelStatusService.GetMultipleModelsStatus(names, window)
 	if err != nil {
 		return nil, err
 	}
@@ -139,10 +139,15 @@ func (s *UptimeKumaService) GetStatusPageConfig(slug, window string) (*StatusPag
 	// 构建监控列表
 	monitorList := make([]MonitorItem, 0, len(statuses))
 	for _, status := range statuses {
-		monitorID := modelNameToID(status.ModelName)
+		modelName := toString(status["model_name"])
+		displayName := toString(status["display_name"])
+		if displayName == "" {
+			displayName = modelName
+		}
+		monitorID := modelNameToID(modelName)
 		monitorList = append(monitorList, MonitorItem{
 			ID:      monitorID,
-			Name:    status.DisplayName,
+			Name:    displayName,
 			Type:    "http",
 			SendUrl: 0,
 		})
@@ -175,17 +180,17 @@ func (s *UptimeKumaService) GetStatusPageConfig(slug, window string) (*StatusPag
 
 // GetHeartbeatData 获取心跳数据（uptime-kuma 格式）
 func (s *UptimeKumaService) GetHeartbeatData(slug, window string) (*HeartbeatData, error) {
-	models, err := s.modelStatusService.GetAvailableModelsWithStats24h()
+	models, err := s.modelStatusService.GetAvailableModels()
 	if err != nil {
 		return nil, err
 	}
 
 	names := make([]string, len(models))
 	for i, m := range models {
-		names[i] = m.ModelName
+		names[i] = toString(m["model_name"])
 	}
 
-	statuses, err := s.modelStatusService.GetMultipleModelsStatusItems(names, window, true)
+	statuses, err := s.modelStatusService.GetMultipleModelsStatus(names, window)
 	if err != nil {
 		return nil, err
 	}
@@ -194,22 +199,33 @@ func (s *UptimeKumaService) GetHeartbeatData(slug, window string) (*HeartbeatDat
 	uptimeList := make(map[string]float64)
 
 	for _, status := range statuses {
-		monitorID := modelNameToID(status.ModelName)
+		modelName := toString(status["model_name"])
+		monitorID := modelNameToID(modelName)
 		monitorIDStr := fmt.Sprintf("%d", monitorID)
 
 		// 构建心跳列表
-		heartbeats := make([]HeartbeatItem, 0, len(status.SlotData))
-		for _, slot := range status.SlotData {
-			slotStatus := mapStatusToUptimeKuma(slot.SuccessRate, slot.TotalRequests)
+		slotData, _ := status["slot_data"].([]interface{})
+		heartbeats := make([]HeartbeatItem, 0, len(slotData))
+		for _, slotIface := range slotData {
+			slot, ok := slotIface.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			successRate := toFloat64(slot["success_rate"])
+			totalRequests := toInt64(slot["total_requests"])
+			successCount := toInt64(slot["success_count"])
+			endTime := toInt64(slot["end_time"])
+
+			slotStatus := mapStatusToUptimeKuma(successRate, totalRequests)
 
 			var msg string
-			if slot.TotalRequests == 0 {
+			if totalRequests == 0 {
 				msg = ""
 			} else {
-				msg = fmt.Sprintf("%d/%d (%.1f%%)", slot.SuccessCount, slot.TotalRequests, slot.SuccessRate)
+				msg = fmt.Sprintf("%d/%d (%.1f%%)", successCount, totalRequests, successRate)
 			}
 
-			utcTime := time.Unix(slot.EndTime, 0).UTC()
+			utcTime := time.Unix(endTime, 0).UTC()
 
 			heartbeats = append(heartbeats, HeartbeatItem{
 				Status: slotStatus,
@@ -220,7 +236,8 @@ func (s *UptimeKumaService) GetHeartbeatData(slug, window string) (*HeartbeatDat
 		}
 
 		heartbeatList[monitorIDStr] = heartbeats
-		uptimeList[monitorIDStr+"_24"] = status.SuccessRate / 100.0
+		successRate := toFloat64(status["success_rate"])
+		uptimeList[monitorIDStr+"_24"] = successRate / 100.0
 	}
 
 	return &HeartbeatData{
@@ -231,17 +248,17 @@ func (s *UptimeKumaService) GetHeartbeatData(slug, window string) (*HeartbeatDat
 
 // GetBadgeData 获取徽章数据
 func (s *UptimeKumaService) GetBadgeData(slug, window, label string) (*BadgeData, error) {
-	models, err := s.modelStatusService.GetAvailableModelsWithStats24h()
+	models, err := s.modelStatusService.GetAvailableModels()
 	if err != nil {
 		return nil, err
 	}
 
 	names := make([]string, len(models))
 	for i, m := range models {
-		names[i] = m.ModelName
+		names[i] = toString(m["model_name"])
 	}
 
-	statuses, err := s.modelStatusService.GetMultipleModelsStatusItems(names, window, true)
+	statuses, err := s.modelStatusService.GetMultipleModelsStatus(names, window)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +267,9 @@ func (s *UptimeKumaService) GetBadgeData(slug, window, label string) (*BadgeData
 	hasDown := false
 
 	for _, status := range statuses {
-		currentStatus := mapStatusToUptimeKuma(status.SuccessRate, status.TotalRequests)
+		successRate := toFloat64(status["success_rate"])
+		totalRequests := toInt64(status["total_requests"])
+		currentStatus := mapStatusToUptimeKuma(successRate, totalRequests)
 		if currentStatus == StatusUp {
 			hasUp = true
 		} else if currentStatus == StatusDown {
@@ -282,17 +301,17 @@ func (s *UptimeKumaService) GetBadgeData(slug, window, label string) (*BadgeData
 
 // GetSummaryData 获取摘要数据
 func (s *UptimeKumaService) GetSummaryData(slug, window string) (*SummaryData, error) {
-	models, err := s.modelStatusService.GetAvailableModelsWithStats24h()
+	models, err := s.modelStatusService.GetAvailableModels()
 	if err != nil {
 		return nil, err
 	}
 
 	names := make([]string, len(models))
 	for i, m := range models {
-		names[i] = m.ModelName
+		names[i] = toString(m["model_name"])
 	}
 
-	statuses, err := s.modelStatusService.GetMultipleModelsStatusItems(names, window, true)
+	statuses, err := s.modelStatusService.GetMultipleModelsStatus(names, window)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +320,9 @@ func (s *UptimeKumaService) GetSummaryData(slug, window string) (*SummaryData, e
 	var totalUptime float64
 
 	for _, status := range statuses {
-		currentStatus := mapStatusToUptimeKuma(status.SuccessRate, status.TotalRequests)
+		successRate := toFloat64(status["success_rate"])
+		totalRequests := toInt64(status["total_requests"])
+		currentStatus := mapStatusToUptimeKuma(successRate, totalRequests)
 
 		switch currentStatus {
 		case StatusUp:
@@ -312,7 +333,7 @@ func (s *UptimeKumaService) GetSummaryData(slug, window string) (*SummaryData, e
 			monitorsPending++
 		}
 
-		totalUptime += status.SuccessRate
+		totalUptime += successRate
 	}
 
 	totalMonitors := len(statuses)

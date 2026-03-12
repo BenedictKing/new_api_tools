@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **迁移上游 backend 独有特性**：从 Python backend 迁移关键服务到 backend-go
+  - `auto_group.go`：自动分组服务，支持用户自动分组、批量操作、日志管理
+  - `token.go`：令牌管理服务，支持令牌查询和掩码显示
+  - `linuxdo_lookup.go`：Linux.do 用户名查询服务，支持代理和缓存
+  - `quota_data.go`：配额数据可用性检测服务
+  - 新增 `database/helper.go`：数据库辅助方法（RebindQuery、ColumnExists、TableExists）
+  - 新增 `cache.Manager`：兼容 backend API 的缓存管理器接口
+  - 新增 `logger.AppLogger`：兼容 backend API 的日志接口
+  - 新增 `config.LinuxDoProxyURL`：Linux.do 代理配置支持
+  - 涉及文件：`internal/service/auto_group.go`、`internal/service/token.go`、`internal/service/linuxdo_lookup.go`、`internal/service/quota_data.go`、`internal/database/helper.go`、`internal/cache/cache.go`、`internal/logger/logger.go`、`internal/config/config.go`
+
+### Fixed
+- **修复 Tailwind CSS 4 兼容性问题**：移除不兼容的 `@apply` 指令
+  - 将 `@apply border-border` 等指令改为原生 CSS 实现
+  - 修复 Vite 构建错误：`Cannot apply unknown utility class border-border`
+  - 涉及文件：`frontend/src/index.css`
+- **修复 Dashboard 测试失败**：移除 `redemptions` 表不存在的 `deleted_at` 字段查询
+  - NewAPI 的 `redemptions` 表没有软删除字段
+  - 修复 SQL 错误：`no such column: deleted_at`
+  - 涉及文件：`backend-go/internal/service/dashboard.go`
+
+### Changed
+- **前端依赖升级**：升级所有依赖到最新版本
+  - `@lobehub/icons`: 4.0.2 → 5.0.1
+  - `@radix-ui/*`: 多个组件升级到最新版本
+  - `eslint`: 8.55.0 → 10.0.3
+  - `tailwindcss`: 3.4.0 → 4.2.1
+  - `vite`: 5.0.8 → 7.3.1
+  - `react`: 19.2.3 → 19.2.4
+  - 涉及文件：`frontend/package.json`、`frontend/bun.lock`
+
+### Added
 - **用户风险分析增强**：`GetUserAnalysis` 新增完整的风险指标和详情数据
   - 新增 `risk` 对象：包含 `requests_per_minute`、`avg_quota_per_request`、`risk_flags`、`ip_switch_analysis`
   - 新增 `recent_logs`：返回最近 10 条请求日志详情

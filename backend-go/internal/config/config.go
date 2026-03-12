@@ -12,12 +12,13 @@ import (
 
 // Config 全局配置结构
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	Auth     AuthConfig
-	GeoIP    GeoIPConfig
-	Cache    CacheConfig
+	Server          ServerConfig
+	Database        DatabaseConfig
+	Redis           RedisConfig
+	Auth            AuthConfig
+	GeoIP           GeoIPConfig
+	Cache           CacheConfig
+	LinuxDoProxyURL string // Linux.do 查询代理 URL
 }
 
 // ServerConfig 服务器配置
@@ -165,6 +166,12 @@ func Load() (*Config, error) {
 	cfg.Cache.DashboardTTL = viper.GetDuration("cache.dashboard_ttl")
 	cfg.Cache.LeaderboardTTL = viper.GetDuration("cache.leaderboard_ttl")
 	cfg.Cache.IPMonitoringTTL = viper.GetDuration("cache.ip_monitoring_ttl")
+
+	// Linux.do 代理配置
+	cfg.LinuxDoProxyURL = viper.GetString("linuxdo_proxy_url")
+	if cfg.LinuxDoProxyURL == "" {
+		cfg.LinuxDoProxyURL = os.Getenv("LINUXDO_PROXY_URL")
+	}
 
 	// 验证必需配置
 	if err := cfg.Validate(); err != nil {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/ketches/new-api-tools/internal/database"
-	"github.com/ketches/new-api-tools/internal/models"
+	"github.com/BenedictKing/new_api_tools/internal/database"
+	"github.com/BenedictKing/new_api_tools/internal/models"
 	"gorm.io/gorm"
 )
 
