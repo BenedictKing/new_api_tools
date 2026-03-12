@@ -2,10 +2,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './Toast'
 import { cn } from '../lib/utils'
-import { RefreshCw, Loader2, Timer, ChevronDown, Settings2, Check, Clock, Palette, Moon, Sun, Minimize2, Zap, Terminal, Leaf, Droplets, HelpCircle, Copy, X, Command, LayoutGrid, Bot, MessageSquareQuote, Triangle, Sparkles, CreditCard, GitBranch, Gamepad2, Rocket, Brain } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { RefreshCw, Loader2, Timer, ChevronDown, Settings2, Check, Clock, Palette, Moon, Sun, Minimize2, Maximize2, Zap, Terminal, Leaf, Droplets, HelpCircle, Copy, X, Command, LayoutGrid, Bot, MessageSquareQuote, Triangle, Sparkles, CreditCard, GitBranch, Gamepad2, Rocket, Brain, ArrowUpDown, GripVertical, Search, Filter } from 'lucide-react'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
+import { useClickOutside } from '../hooks/useClickOutside'
 import {
   OpenAI, Gemini, DeepSeek, SiliconCloud, Groq, Ollama, Claude, Mistral,
   Minimax, Baichuan, Moonshot, Spark, Qwen, Yi, Hunyuan, Stepfun, ZeroOne,
@@ -59,30 +63,30 @@ const MODEL_LOGO_MAP: Record<string, IconComponent> = {
   'dall-e': OpenAI,
   'whisper': OpenAI,
   'tts': OpenAI,
-  
+
   // Google models
   'gemini': Gemini,
   'gemma': Gemini,
   'palm': Gemini,
   'bard': Gemini,
-  
+
   // Anthropic models
   'claude': Claude,
   'anthropic': Claude,
-  
+
   // DeepSeek models
   'deepseek': DeepSeek,
-  
+
   // Meta models
   'llama': Meta,
   'meta': Meta,
-  
+
   // Mistral models
   'mistral': Mistral,
   'mixtral': Mistral,
   'codestral': Mistral,
   'pixtral': Mistral,
-  
+
   // Chinese models
   'qwen': Qwen,
   'tongyi': Qwen,
@@ -111,7 +115,7 @@ const MODEL_LOGO_MAP: Record<string, IconComponent> = {
   '01': ZeroOne,
   '360': Ai360,
   'modelscope': ModelScope,
-  
+
   // Other providers
   'groq': Groq,
   'ollama': Ollama,
@@ -133,14 +137,14 @@ const MODEL_LOGO_MAP: Record<string, IconComponent> = {
 // Get model logo component based on model name
 function getModelLogo(modelName: string): IconComponent | null {
   const lowerName = modelName.toLowerCase()
-  
+
   // Check each pattern in order of specificity
   for (const [pattern, Logo] of Object.entries(MODEL_LOGO_MAP)) {
     if (lowerName.includes(pattern)) {
       return Logo
     }
   }
-  
+
   return null
 }
 
@@ -153,11 +157,11 @@ interface ModelLogoProps {
 
 function ModelLogo({ modelName, size = 20, className }: ModelLogoProps) {
   const Logo = useMemo(() => getModelLogo(modelName), [modelName])
-  
+
   if (Logo) {
     return <Logo size={size} className={className} />
   }
-  
+
   // Fallback to generic AI icon
   return <Brain size={size} className={cn("text-muted-foreground", className)} />
 }
@@ -238,6 +242,14 @@ const SELECTED_MODELS_KEY = 'model_status_selected_models'
 const REFRESH_INTERVAL_KEY = 'model_status_refresh_interval'
 const TIME_WINDOW_KEY = 'model_status_time_window'
 const THEME_KEY = 'model_status_theme'
+const SORT_MODE_KEY = 'model_status_sort_mode'
+const CUSTOM_ORDER_KEY = 'model_status_custom_order'
+
+// Sort mode type
+type SortMode = 'default' | 'availability' | 'custom'
+
+// Status filter type
+type StatusFilter = 'all' | 'green' | 'yellow' | 'red'
 
 export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps) {
   const { token } = useAuth()
@@ -247,6 +259,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [modelStatuses, setModelStatuses] = useState<ModelStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   const [timeWindow, setTimeWindow] = useState(() => {
@@ -256,7 +269,9 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
 
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem(THEME_KEY)
-    return saved || 'daylight'
+    // Validate saved theme exists, fallback for legacy values (light/dark/system)
+    if (saved && THEMES.find(t => t.id === saved)) return saved
+    return 'daylight'
   })
 
   const [refreshInterval, setRefreshInterval] = useState(() => {
@@ -266,11 +281,23 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
   const [countdown, setCountdown] = useState(refreshInterval)
   const refreshIntervalRef = useRef(refreshInterval)
 
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    const saved = localStorage.getItem(SORT_MODE_KEY)
+    return (saved as SortMode) || 'default'
+  })
+  const [customOrder, setCustomOrder] = useState<string[]>(() => {
+    const saved = localStorage.getItem(CUSTOM_ORDER_KEY)
+    return saved ? JSON.parse(saved) : []
+  })
+
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false)
   const [showWindowDropdown, setShowWindowDropdown] = useState(false)
   const [showThemeDropdown, setShowThemeDropdown] = useState(false)
   const [showEmbedHelp, setShowEmbedHelp] = useState(false)
+  const [modelSearchQuery, setModelSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const intervalDropdownRef = useRef<HTMLDivElement>(null)
   const windowDropdownRef = useRef<HTMLDivElement>(null)
@@ -293,23 +320,27 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
   }, [isEmbed])
 
   // Click outside handlers
+  useClickOutside(modelSelectorRef, () => setShowModelSelector(false), showModelSelector)
+  useClickOutside(intervalDropdownRef, () => setShowIntervalDropdown(false), showIntervalDropdown)
+  useClickOutside(windowDropdownRef, () => setShowWindowDropdown(false), showWindowDropdown)
+  useClickOutside(themeDropdownRef, () => setShowThemeDropdown(false), showThemeDropdown)
+
+  // Fullscreen change listener
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
-        setShowModelSelector(false)
-      }
-      if (intervalDropdownRef.current && !intervalDropdownRef.current.contains(event.target as Node)) {
-        setShowIntervalDropdown(false)
-      }
-      if (windowDropdownRef.current && !windowDropdownRef.current.contains(event.target as Node)) {
-        setShowWindowDropdown(false)
-      }
-      if (themeDropdownRef.current && !themeDropdownRef.current.contains(event.target as Node)) {
-        setShowThemeDropdown(false)
-      }
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  // Toggle fullscreen mode
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(console.error)
+    } else {
+      document.exitFullscreen().catch(console.error)
+    }
   }, [])
 
   // Save time window to backend cache
@@ -369,6 +400,23 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
     }
   }, [apiUrl, getAuthHeaders])
 
+  // Save sort config to backend cache
+  const saveSortConfigToBackend = useCallback(async (mode: SortMode, order?: string[]) => {
+    try {
+      await fetch(`${apiUrl}/api/model-status/config/sort`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ sort_mode: mode, custom_order: order }),
+      })
+      localStorage.setItem(SORT_MODE_KEY, mode)
+      if (order) {
+        localStorage.setItem(CUSTOM_ORDER_KEY, JSON.stringify(order))
+      }
+    } catch (error) {
+      console.error('Failed to save sort config:', error)
+    }
+  }, [apiUrl, getAuthHeaders])
+
   // Load config from backend on mount
   const loadConfigFromBackend = useCallback(async () => {
     try {
@@ -386,13 +434,23 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
           localStorage.setItem(TIME_WINDOW_KEY, data.time_window)
         }
         if (data.theme) {
-          setTheme(data.theme)
-          localStorage.setItem(THEME_KEY, data.theme)
+          // Validate theme exists, fallback to daylight for legacy values (light/dark/system)
+          const validTheme = THEMES.find(t => t.id === data.theme) ? data.theme : 'daylight'
+          setTheme(validTheme)
+          localStorage.setItem(THEME_KEY, validTheme)
         }
         if (data.refresh_interval !== undefined && data.refresh_interval !== null) {
           setRefreshInterval(data.refresh_interval)
           setCountdown(data.refresh_interval)
           localStorage.setItem(REFRESH_INTERVAL_KEY, data.refresh_interval.toString())
+        }
+        if (data.sort_mode) {
+          setSortMode(data.sort_mode as SortMode)
+          localStorage.setItem(SORT_MODE_KEY, data.sort_mode)
+        }
+        if (data.custom_order && data.custom_order.length > 0) {
+          setCustomOrder(data.custom_order)
+          localStorage.setItem(CUSTOM_ORDER_KEY, JSON.stringify(data.custom_order))
         }
         return data.data || []
       }
@@ -434,8 +492,8 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
             .filter((m: ModelWithStats) => m.request_count_24h > 0)
             .map((m: ModelWithStats) => m.model_name)
           // If no active models, fall back to first 5
-          const defaultModels = activeModels.length > 0 
-            ? activeModels 
+          const defaultModels = activeModels.length > 0
+            ? activeModels
             : data.data.slice(0, 5).map((m: ModelWithStats) => m.model_name)
           setSelectedModels(defaultModels)
           saveSelectedModelsToBackend(defaultModels)
@@ -452,6 +510,10 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
     if (selectedModels.length === 0) {
       setModelStatuses([])
       setLoading(false)
+      // Only clear initialLoading when we know models have been loaded
+      if (availableModels.length > 0) {
+        setInitialLoading(false)
+      }
       return
     }
 
@@ -470,6 +532,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
       const data = await response.json()
       if (data.success) {
         setModelStatuses(data.data)
+        setInitialLoading(false)
       }
     } catch (error) {
       console.error('Failed to fetch model statuses:', error)
@@ -550,6 +613,98 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
     fetchModelStatuses(true)
   }
 
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  // Status counts for overview
+  const statusCounts = useMemo(() => {
+    const counts = { green: 0, yellow: 0, red: 0 }
+    modelStatuses.forEach(m => {
+      counts[m.current_status]++
+    })
+    return counts
+  }, [modelStatuses])
+
+  // Sorted model statuses based on sort mode
+  const sortedModelStatuses = useMemo(() => {
+    if (modelStatuses.length === 0) return []
+
+    let result: ModelStatus[]
+    switch (sortMode) {
+      case 'availability':
+        // Sort by success rate descending
+        result = [...modelStatuses].sort((a, b) => b.success_rate - a.success_rate)
+        break
+      case 'custom':
+        if (customOrder.length === 0) {
+          result = modelStatuses
+        } else {
+          // Sort by custom order
+          result = [...modelStatuses].sort((a, b) => {
+            const indexA = customOrder.indexOf(a.model_name)
+            const indexB = customOrder.indexOf(b.model_name)
+            // Models not in customOrder go to the end
+            if (indexA === -1 && indexB === -1) return 0
+            if (indexA === -1) return 1
+            if (indexB === -1) return -1
+            return indexA - indexB
+          })
+        }
+        break
+      default:
+        result = modelStatuses
+    }
+
+    // Hide models with 0 requests
+    result = result.filter(m => m.total_requests > 0)
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      result = result.filter(m => m.current_status === statusFilter)
+    }
+
+    return result
+  }, [modelStatuses, sortMode, customOrder, statusFilter])
+
+  // Handle drag end for reordering
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      const oldIndex = sortedModelStatuses.findIndex(m => m.model_name === active.id)
+      const newIndex = sortedModelStatuses.findIndex(m => m.model_name === over.id)
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        // Create new order
+        const newOrder = sortedModelStatuses.map(m => m.model_name)
+        const [movedItem] = newOrder.splice(oldIndex, 1)
+        newOrder.splice(newIndex, 0, movedItem)
+
+        // Update state and save
+        setCustomOrder(newOrder)
+        setSortMode('custom')
+        saveSortConfigToBackend('custom', newOrder)
+        showToast('success', '已切换为自定义排序')
+      }
+    }
+  }
+
+  // Handle availability sort button click
+  const handleAvailabilitySort = () => {
+    setSortMode('availability')
+    saveSortConfigToBackend('availability')
+    showToast('success', '已按成功率排序')
+  }
+
   const toggleModelSelection = (model: string) => {
     const newModels = selectedModels.includes(model)
       ? selectedModels.filter(m => m !== model)
@@ -571,8 +726,66 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
 
   if (loading && modelStatuses.length === 0) {
     return (
-      <div className="flex justify-center items-center py-20">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      <div className={cn("space-y-6", isEmbed && "p-4")}>
+        {/* Skeleton Header */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="h-6 w-32 bg-muted animate-pulse rounded-md" />
+                  <div className="h-5 w-14 bg-muted animate-pulse rounded-full" />
+                </div>
+                <div className="h-4 w-48 bg-muted animate-pulse rounded-md mt-2" />
+              </div>
+              <div className="flex items-center gap-3">
+                {[80, 64, 80, 96, 80, 72].map((w, i) => (
+                  <div key={i} className="h-9 bg-muted animate-pulse rounded-md" style={{ width: w, animationDelay: `${i * 100}ms` }} />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Skeleton Cards Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {[0, 1, 2, 3].map(i => (
+            <Card key={i} className="overflow-hidden" style={{ animationDelay: `${i * 150}ms` }}>
+              <div className="px-4 pt-3 pb-3 animate-in fade-in-0 duration-500" style={{ animationDelay: `${i * 150}ms` }}>
+                {/* Skeleton header row */}
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="w-6 h-6 rounded-md bg-muted animate-pulse" />
+                  <div className="h-4 bg-muted animate-pulse rounded-md" style={{ width: `${120 + i * 30}px` }} />
+                  <div className="h-5 w-12 bg-muted animate-pulse rounded-full" />
+                  <div className="ml-auto flex items-center gap-1">
+                    <div className="h-4 w-10 bg-muted animate-pulse rounded-md" />
+                    <div className="h-4 w-14 bg-muted animate-pulse rounded-md" />
+                  </div>
+                </div>
+                {/* Skeleton status bar */}
+                <div className="flex gap-[3px]">
+                  {Array.from({ length: 24 }).map((_, j) => (
+                    <div
+                      key={j}
+                      className={cn(
+                        "flex-1 h-5 bg-muted animate-pulse",
+                        j === 0 ? "rounded-l-md rounded-r-sm" :
+                          j === 23 ? "rounded-r-md rounded-l-sm" : "rounded-sm"
+                      )}
+                      style={{ animationDelay: `${(i * 150) + (j * 20)}ms` }}
+                    />
+                  ))}
+                </div>
+                {/* Skeleton time labels */}
+                <div className="flex justify-between mt-1.5">
+                  <div className="h-3 w-10 bg-muted animate-pulse rounded" />
+                  <div className="h-3 w-10 bg-muted animate-pulse rounded" />
+                  <div className="h-3 w-8 bg-muted animate-pulse rounded" />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     )
   }
@@ -588,12 +801,24 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 <h2 className="text-lg font-medium">模型状态监控</h2>
                 <Badge variant="outline">{TIME_WINDOWS.find(w => w.value === timeWindow)?.label || '24小时'}</Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-sm text-muted-foreground mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
                 监控 <span className="font-medium text-primary">{selectedModels.length}</span> 个模型
                 {modelStatuses.length > 0 && (
-                  <span className="ml-2">
-                    · 总请求: {modelStatuses.reduce((sum, m) => sum + m.total_requests, 0).toLocaleString()}
-                  </span>
+                  <>
+                    <span>· 总请求: {modelStatuses.reduce((sum, m) => sum + m.total_requests, 0).toLocaleString()}</span>
+                    <span className="flex items-center gap-1">
+                      · <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                      <span className="text-green-600 font-medium">{statusCounts.green}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-yellow-500" />
+                      <span className="text-yellow-600 font-medium">{statusCounts.yellow}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                      <span className="text-red-600 font-medium">{statusCounts.red}</span>
+                    </span>
+                  </>
                 )}
               </p>
             </div>
@@ -612,7 +837,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 </Button>
 
                 {showWindowDropdown && (
-                  <div className="absolute right-0 mt-1 w-36 bg-popover border rounded-md shadow-lg z-50">
+                  <div className="absolute right-0 mt-1 w-36 bg-popover border rounded-md shadow-lg z-40">
                     <div className="p-2 border-b">
                       <p className="text-xs text-muted-foreground">时间窗口</p>
                     </div>
@@ -652,7 +877,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 </Button>
 
                 {showThemeDropdown && (
-                  <div className="absolute right-0 mt-1 w-56 bg-popover border rounded-md shadow-lg z-50">
+                  <div className="absolute right-0 mt-1 w-56 bg-popover border rounded-md shadow-lg z-40">
                     <div className="p-2 border-b">
                       <p className="text-xs text-muted-foreground">嵌入页面主题</p>
                     </div>
@@ -702,7 +927,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 </Button>
 
                 {showModelSelector && (
-                  <div className="absolute right-0 mt-1 w-72 bg-popover border rounded-md shadow-lg z-50 max-h-96 overflow-hidden">
+                  <div className="absolute right-0 mt-1 w-72 bg-popover border rounded-md shadow-lg z-40 max-h-96 overflow-hidden">
                     <div className="p-2 border-b flex justify-between items-center">
                       <p className="text-xs text-muted-foreground">选择要监控的模型</p>
                       <div className="flex gap-1">
@@ -723,44 +948,60 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                         </Button>
                       </div>
                     </div>
-                    <div className="p-1 max-h-72 overflow-y-auto">
-                      {availableModels.map(model => (
-                        <button
-                          key={model.model_name}
-                          onClick={() => toggleModelSelection(model.model_name)}
-                          className={cn(
-                            "w-full text-left px-3 py-2 text-sm rounded hover:bg-accent transition-colors flex items-center justify-between",
-                            selectedModels.includes(model.model_name) && "bg-accent"
-                          )}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                              <ModelLogo modelName={model.model_name} size={16} />
-                            </div>
-                            <span className={cn(
-                              "truncate",
-                              model.request_count_24h === 0 && "text-muted-foreground"
-                            )}>
-                              {model.model_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {model.request_count_24h > 0 ? (
-                              <span className="text-xs text-muted-foreground">
-                                {model.request_count_24h.toLocaleString()}
+                    {/* Search input */}
+                    <div className="px-2 py-1.5 border-b">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="搜索模型..."
+                          value={modelSearchQuery}
+                          onChange={(e) => setModelSearchQuery(e.target.value)}
+                          className="w-full h-8 pl-8 pr-3 text-sm bg-muted/50 border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="p-1 max-h-64 overflow-y-auto">
+                      {availableModels
+                        .filter(model => !modelSearchQuery || model.model_name.toLowerCase().includes(modelSearchQuery.toLowerCase()))
+                        .map(model => (
+                          <button
+                            key={model.model_name}
+                            onClick={() => toggleModelSelection(model.model_name)}
+                            className={cn(
+                              "w-full text-left px-3 py-2 text-sm rounded hover:bg-accent transition-colors flex items-center justify-between",
+                              selectedModels.includes(model.model_name) && "bg-accent"
+                            )}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                                <ModelLogo modelName={model.model_name} size={16} />
+                              </div>
+                              <span className={cn(
+                                "truncate",
+                                model.request_count_24h === 0 && "text-muted-foreground"
+                              )}>
+                                {model.model_name}
                               </span>
-                            ) : (
-                              <span className="text-xs text-orange-400">无请求</span>
-                            )}
-                            {selectedModels.includes(model.model_name) && (
-                              <Check className="h-4 w-4 text-primary" />
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                      {availableModels.length === 0 && (
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {model.request_count_24h > 0 ? (
+                                <span className="text-xs text-muted-foreground">
+                                  {model.request_count_24h.toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-orange-400">无请求</span>
+                              )}
+                              {selectedModels.includes(model.model_name) && (
+                                <Check className="h-4 w-4 text-primary" />
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      {availableModels.filter(m => !modelSearchQuery || m.model_name.toLowerCase().includes(modelSearchQuery.toLowerCase())).length === 0 && (
                         <p className="text-sm text-muted-foreground text-center py-4">
-                          暂无可用模型
+                          {modelSearchQuery ? '未找到匹配的模型' : '暂无可用模型'}
                         </p>
                       )}
                     </div>
@@ -788,7 +1029,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 </Button>
 
                 {showIntervalDropdown && (
-                  <div className="absolute right-0 mt-1 w-36 bg-popover border rounded-md shadow-lg z-50">
+                  <div className="absolute right-0 mt-1 w-36 bg-popover border rounded-md shadow-lg z-40">
                     <div className="p-2 border-b">
                       <p className="text-xs text-muted-foreground">刷新间隔</p>
                     </div>
@@ -814,6 +1055,18 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                 )}
               </div>
 
+              {/* Availability Sort Button */}
+              <Button
+                variant={sortMode === 'availability' ? 'default' : 'outline'}
+                size="sm"
+                onClick={handleAvailabilitySort}
+                className="h-9"
+                title="按成功率从高到低排序"
+              >
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                高可用排序
+              </Button>
+
               {/* Manual Refresh */}
               <Button onClick={handleRefresh} disabled={refreshing}>
                 {refreshing ? (
@@ -822,6 +1075,21 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
                   <RefreshCw className="h-4 w-4 mr-2" />
                 )}
                 刷新
+              </Button>
+
+              {/* Fullscreen Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleFullscreen}
+                title={isFullscreen ? '退出全屏' : '全屏模式'}
+                className="h-9 w-9"
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
               </Button>
 
               {/* Embed Help Button */}
@@ -844,11 +1112,91 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
         <EmbedHelpModal onClose={() => setShowEmbedHelp(false)} />
       )}
 
+      {/* Status Filter Tabs */}
+      {modelStatuses.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          {[
+            { value: 'all' as StatusFilter, label: '全部', count: modelStatuses.length },
+            { value: 'green' as StatusFilter, label: '正常', count: statusCounts.green, color: 'text-green-600' },
+            { value: 'yellow' as StatusFilter, label: '警告', count: statusCounts.yellow, color: 'text-yellow-600' },
+            { value: 'red' as StatusFilter, label: '异常', count: statusCounts.red, color: 'text-red-600' },
+          ].map(tab => (
+            <button
+              key={tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={cn(
+                "px-3 py-1.5 text-sm rounded-md transition-all",
+                statusFilter === tab.value
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab.label}
+              <span className={cn(
+                "ml-1.5 text-xs tabular-nums",
+                statusFilter === tab.value ? "opacity-80" : (tab.color || "")
+              )}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Model Status Cards */}
-      {modelStatuses.length > 0 ? (
-        <div className="grid gap-4">
-          {modelStatuses.map(model => (
-            <ModelStatusCard key={model.model_name} model={model} />
+      {sortedModelStatuses.length > 0 ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={sortedModelStatuses.map(m => m.model_name)}
+            strategy={rectSortingStrategy}
+          >
+            <div key={statusFilter} className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {sortedModelStatuses.map(model => (
+                <SortableModelCard key={model.model_name} model={model} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : initialLoading ? (
+        /* Skeleton cards during initial loading transition */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {[0, 1, 2, 3].map(i => (
+            <Card key={i} className="overflow-hidden">
+              <div className="px-4 pt-3 pb-3 animate-in fade-in-0 duration-500" style={{ animationDelay: `${i * 150}ms` }}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="w-6 h-6 rounded-md bg-muted animate-pulse" />
+                  <div className="h-4 bg-muted animate-pulse rounded-md" style={{ width: `${120 + i * 30}px` }} />
+                  <div className="h-5 w-12 bg-muted animate-pulse rounded-full" />
+                  <div className="ml-auto flex items-center gap-1">
+                    <div className="h-4 w-10 bg-muted animate-pulse rounded-md" />
+                    <div className="h-4 w-14 bg-muted animate-pulse rounded-md" />
+                  </div>
+                </div>
+                <div className="flex gap-[3px]">
+                  {Array.from({ length: 24 }).map((_, j) => (
+                    <div
+                      key={j}
+                      className={cn(
+                        "flex-1 h-5 bg-muted animate-pulse",
+                        j === 0 ? "rounded-l-md rounded-r-sm" :
+                          j === 23 ? "rounded-r-md rounded-l-sm" : "rounded-sm"
+                      )}
+                      style={{ animationDelay: `${(i * 150) + (j * 20)}ms` }}
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1.5">
+                  <div className="h-3 w-10 bg-muted animate-pulse rounded" />
+                  <div className="h-3 w-10 bg-muted animate-pulse rounded" />
+                  <div className="h-3 w-8 bg-muted animate-pulse rounded" />
+                </div>
+              </div>
+            </Card>
           ))}
         </div>
       ) : (
@@ -892,21 +1240,50 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
 
 interface ModelStatusCardProps {
   model: ModelStatus
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
+}
+
+// Sortable wrapper for ModelStatusCard
+function SortableModelCard({ model }: { model: ModelStatus }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: model.model_name })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1000 : 'auto',
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <ModelStatusCard
+        model={model}
+        dragHandleProps={listeners}
+      />
+    </div>
+  )
 }
 
 // Embed Help Modal Component
 function EmbedHelpModal({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState<string | null>(null)
-  
+
   // Get current origin for embed URL
   const currentOrigin = window.location.origin
   const embedPath = '/embed.html'
   const embedUrl = `${currentOrigin}${embedPath}`
-  
+
   // Check if using IP address (recommend using domain with HTTPS)
   const isIpAddress = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}/.test(currentOrigin)
   const isHttps = currentOrigin.startsWith('https://')
-  
+
   const codeExamples = {
     basic: `<iframe 
   src="${embedUrl}" 
@@ -971,7 +1348,7 @@ function EmbedHelpModal({ onClose }: { onClose: () => void }) {
             <X className="h-4 w-4" />
           </Button>
         </div>
-        
+
         {/* Content */}
         <div className="p-4 space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           {/* Security Warning for IP/HTTP */}
@@ -1098,65 +1475,101 @@ function EmbedHelpModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ModelStatusCard({ model }: ModelStatusCardProps) {
+function ModelStatusCard({ model, dragHandleProps }: ModelStatusCardProps) {
   const [hoveredSlot, setHoveredSlot] = useState<SlotStatus | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+  const [tooltipFlipped, setTooltipFlipped] = useState(false)
 
   const handleMouseEnter = (slot: SlotStatus, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    // Boundary detection: flip tooltip below if too close to top
+    const shouldFlip = rect.top < 100
+    // Clamp X to prevent overflow at edges
+    const clampedX = Math.max(120, Math.min(rect.left + rect.width / 2, viewportWidth - 120))
     setTooltipPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10,
+      x: clampedX,
+      y: shouldFlip ? rect.bottom + 10 : rect.top - 10,
     })
+    setTooltipFlipped(shouldFlip)
     setHoveredSlot(slot)
   }
 
   const getTimeLabels = () => {
     switch (model.time_window) {
-      case '1h': return ['60分钟前', '30分钟前', '现在']
-      case '6h': return ['6小时前', '3小时前', '现在']
-      case '12h': return ['12小时前', '6小时前', '现在']
-      default: return ['24小时前', '12小时前', '现在']
+      case '1h': return ['60m前', '30m前', '现在']
+      case '6h': return ['6h前', '3h前', '现在']
+      case '12h': return ['12h前', '6h前', '现在']
+      default: return ['24h前', '12h前', '现在']
     }
   }
 
   const timeLabels = getTimeLabels()
 
+  // Success rate color based on status
+  const rateColorClass = model.current_status === 'green' ? 'text-green-600 dark:text-green-400'
+    : model.current_status === 'yellow' ? 'text-yellow-600 dark:text-yellow-400'
+      : 'text-red-600 dark:text-red-400'
+
+  // Card border/bg classes based on status
+  const cardStatusClass = model.current_status === 'red'
+    ? 'border-l-[3px] border-l-red-500 bg-red-500/[0.03]'
+    : model.current_status === 'yellow'
+      ? 'border-l-[3px] border-l-yellow-500 bg-yellow-500/[0.03]'
+      : ''
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-muted/50 flex-shrink-0">
-              <ModelLogo modelName={model.model_name} size={20} />
-            </div>
-            <CardTitle className="text-base font-medium truncate max-w-md" title={model.model_name}>
-              {model.model_name}
-            </CardTitle>
-            <Badge
-              variant={model.current_status === 'green' ? 'success' : model.current_status === 'yellow' ? 'warning' : 'destructive'}
+    <Card className={cn(
+      "overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-primary/20",
+      cardStatusClass
+    )}>
+      <div className="px-4 pt-3 pb-3">
+        {/* Header row: drag handle + logo + name + badge + stats */}
+        <div className="flex items-center gap-2 mb-2.5">
+          {dragHandleProps && (
+            <div
+              {...dragHandleProps}
+              className="flex items-center justify-center w-5 h-5 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground transition-colors flex-shrink-0"
+              title="拖拽排序"
             >
-              {STATUS_LABELS[model.current_status]}
-            </Badge>
+              <GripVertical className="h-3.5 w-3.5" />
+            </div>
+          )}
+          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-muted/50 flex-shrink-0">
+            <ModelLogo modelName={model.model_name} size={16} />
           </div>
-          <div className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{model.success_rate}%</span> 成功率
-            <span className="mx-2">·</span>
-            <span>{model.total_requests.toLocaleString()}</span> 请求
+          <span className="text-sm font-medium truncate" title={model.model_name}>
+            {model.model_name}
+          </span>
+          <Badge
+            variant={model.current_status === 'green' ? 'success' : model.current_status === 'yellow' ? 'warning' : 'destructive'}
+            className="text-[10px] px-1.5 py-0 h-5 flex-shrink-0"
+          >
+            {STATUS_LABELS[model.current_status]}
+          </Badge>
+          <div className="ml-auto text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+            <span className={cn("font-semibold", rateColorClass)}>{model.success_rate}%</span>
+            <span className="mx-1 text-muted-foreground/40">·</span>
+            <span>{model.total_requests.toLocaleString()}</span>
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        {/* Status grid */}
+
+        {/* Status grid - compact with rounded ends and staggered animation */}
         <div className="relative">
-          <div className="flex gap-1">
+          <div className="flex gap-[3px]">
             {model.slot_data.map((slot, index) => (
               <div
                 key={index}
                 className={cn(
-                  "flex-1 h-8 rounded cursor-pointer transition-all hover:ring-2 hover:ring-primary hover:ring-offset-1",
-                  slot.total_requests === 0 ? STATUS_COLORS.empty : STATUS_COLORS[slot.status]
+                  "flex-1 h-5 cursor-pointer transition-all hover:ring-1.5 hover:ring-primary hover:ring-offset-1 hover:scale-y-110",
+                  // Rounded ends for pill shape
+                  index === 0 ? "rounded-l-md rounded-r-sm" :
+                    index === model.slot_data.length - 1 ? "rounded-r-md rounded-l-sm" :
+                      "rounded-sm",
+                  slot.total_requests === 0 ? STATUS_COLORS.empty : STATUS_COLORS[slot.status],
+                  "animate-in fade-in-0 duration-300"
                 )}
+                style={{ animationDelay: `${index * 15}ms` }}
                 onMouseEnter={(e) => handleMouseEnter(slot, e)}
                 onMouseLeave={() => setHoveredSlot(null)}
               />
@@ -1164,32 +1577,41 @@ function ModelStatusCard({ model }: ModelStatusCardProps) {
           </div>
 
           {/* Time labels */}
-          <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+          <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground/60">
             <span>{timeLabels[0]}</span>
             <span>{timeLabels[1]}</span>
             <span>{timeLabels[2]}</span>
           </div>
 
-          {/* Tooltip */}
+          {/* Tooltip with boundary detection and entrance animation */}
           {hoveredSlot && (
             <div
-              className="fixed z-[9999] bg-popover border rounded-lg shadow-lg p-3 text-sm pointer-events-none"
+              className="fixed z-[9999] bg-popover border rounded-lg shadow-xl p-2.5 text-xs pointer-events-none animate-in fade-in-0 zoom-in-95 duration-150"
               style={{
                 left: tooltipPosition.x,
                 top: tooltipPosition.y,
-                transform: 'translate(-50%, -100%)',
+                transform: tooltipFlipped ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
               }}
             >
-              <div className="font-medium mb-2">
+              {/* Arrow indicator */}
+              <div
+                className={cn(
+                  "absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-popover border rotate-45",
+                  tooltipFlipped
+                    ? "-top-1 border-b-0 border-r-0"
+                    : "-bottom-1 border-t-0 border-l-0"
+                )}
+              />
+              <div className="font-medium mb-1.5">
                 {formatDateTime(hoveredSlot.start_time)} - {formatTime(hoveredSlot.end_time)}
               </div>
-              <div className="space-y-1 text-muted-foreground">
+              <div className="space-y-0.5 text-muted-foreground">
                 <div className="flex justify-between gap-4">
-                  <span>总请求:</span>
+                  <span>请求:</span>
                   <span className="font-medium text-foreground">{hoveredSlot.total_requests}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span>成功数:</span>
+                  <span>成功:</span>
                   <span className="font-medium text-green-600">{hoveredSlot.success_count}</span>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -1206,7 +1628,7 @@ function ModelStatusCard({ model }: ModelStatusCardProps) {
             </div>
           )}
         </div>
-      </CardContent>
+      </div>
     </Card>
   )
 }

@@ -77,9 +77,6 @@ response.json
 NewApi.apifox.json
 默认模块.openapi.json
 
-# GeoIP database files (large binary files with license restrictions)
-data/geoip/**/*.mmdb
-
 
 new_api_tools/insert_mysql.sh
 new_api_tools/insert_pgsql.sh
@@ -98,7 +95,9 @@ docs/redis-sqlite-cache-architecture.md
 docs/cache-architecture.md
 .claude/
 CLAUDE.md
-frontend/bun.lock
-
-# Reference repositories (for development only)
-refs/
+test_cf_bypass.py
+test_cf_bypass_go/go.mod
+test_cf_bypass_go/go.sum
+test_cf_bypass_go/main.go
+test_cf_bypass_go/test_cf.exe
+database_schema.sql

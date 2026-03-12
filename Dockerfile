@@ -1,62 +1,83 @@
-# --- 阶段 1: 准备 Bun 运行时 ---
-FROM oven/bun:alpine AS bun-runtime
+# NewAPI Middleware Tool - All-in-One Dockerfile (Go Backend)
+# 前端 + Go 后端合并到单个镜像
+#
+# 构建缓存说明:
+#   - npm 依赖缓存: /root/.npm
+#   - Go 模块缓存: /go/pkg/mod
+#   - Go 编译缓存: /root/.cache/go-build
+#   使用 docker buildx build 或 DOCKER_BUILDKIT=1 启用缓存挂载
 
-# --- 阶段 2: 构建阶段 (Go + Bun) ---
-FROM golang:1.22-alpine AS builder
+# syntax=docker/dockerfile:1
 
-# 声明 VERSION 构建参数（用于 CI 传入版本号，留空则从 VERSION 文件读取）
-ARG VERSION
+# Stage 1: 构建前端
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY frontend/ ./
+RUN npm run build
 
-WORKDIR /src
+# Stage 2: 构建 Go 后端
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
+ARG TARGETARCH
+WORKDIR /build
+RUN apk add --no-cache git ca-certificates tzdata
 
-# 安装必要的构建工具和 bun 依赖（libstdc++ libgcc 是 bun:alpine 运行所需）
-RUN apk add --no-cache git make libstdc++ libgcc
+# 先复制依赖文件，利用层缓存
+COPY backend/go.mod backend/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-# 从 bun-runtime 复制 bun 和 bunx 到 Go 镜像
-COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
-COPY --from=bun-runtime /usr/local/bin/bunx /usr/local/bin/bunx
+# 复制源码并编译，挂载 Go 编译缓存
+COPY backend/ .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
+    -ldflags="-s -w" \
+    -o /build/server \
+    ./cmd/server
 
-# 将 bun 添加到 PATH
-ENV PATH="/usr/local/bin:${PATH}"
-
-# 复制项目必要文件（.dockerignore 会排除不需要的文件）
-COPY Makefile VERSION ./
-COPY frontend/ ./frontend/
-COPY backend-go/ ./backend-go/
-
-# 使用 bun 安装前端依赖（比 npm 快 10-100 倍）
-RUN cd frontend && bun install
-
-# 安装 Go 后端依赖（go mod tidy 确保 go.sum 完整）
-RUN cd backend-go && go mod tidy && go mod download
-
-# 使用 Makefile 构建整个项目（前端 + 后端）
-# 如果 CI 传入了 VERSION 则使用，否则 Makefile 会从 VERSION 文件读取
-RUN if [ -n "${VERSION}" ]; then VERSION=${VERSION} make build; else make build; fi
-
-# --- 阶段 3: 运行时 ---
-FROM alpine:latest AS runtime
-
+# Stage 3: 最终镜像 (Nginx + Go binary)
+FROM alpine:3.19
 WORKDIR /app
 
-# 安装运行时依赖
-RUN apk --no-cache add ca-certificates tzdata
+# 安装 Nginx 和运行时依赖
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    curl \
+    ca-certificates \
+    tzdata
 
-# 从构建阶段复制 Go 二进制文件（已内嵌前端资源）
-COPY --from=builder /src/dist/newapi-tools /app/newapi-tools
+# 复制 Go 二进制
+COPY --from=backend-builder /build/server /app/server
 
-# 创建配置目录和数据目录
-RUN mkdir -p /app/data /app/logs
+# 创建数据目录
+RUN mkdir -p /app/data && chmod 755 /app/data
 
-# 设置时区（可选）
-ENV TZ=Asia/Shanghai
+# 复制前端构建产物
+COPY --from=frontend-builder /app/dist /usr/share/nginx/html
 
-# 暴露端口
-EXPOSE 3000
+# 复制 Nginx 配置
+COPY frontend/nginx.conf /etc/nginx/http.d/default.conf
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+# 修改 Nginx 配置，代理到本地 Go 后端
+RUN sed -i 's|http://backend:8000|http://127.0.0.1:8000|g' /etc/nginx/http.d/default.conf
 
-# 启动命令
-CMD ["/app/newapi-tools"]
+# Supervisor 配置 - 同时运行 Nginx 和 Go 后端
+RUN mkdir -p /etc/supervisor.d && \
+    echo -e '[supervisord]\nnodaemon=true\nuser=root\n\n\
+[program:nginx]\ncommand=/usr/sbin/nginx -g "daemon off;"\nautostart=true\nautorestart=true\n\
+stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n\n\
+[program:backend]\ncommand=/app/server\ndirectory=/app\nautostart=true\nautorestart=true\n\
+stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n' > /etc/supervisord.conf
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost/api/health || exit 1
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

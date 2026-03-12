@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Login, Layout, TabType, Generator, History, TopUps, Dashboard, Redemptions, Analytics, UserManagement, RealtimeRanking, IPAnalysis, ModelStatusMonitor } from './components'
+import { Login, Layout, TabType, Generator, History, TopUps, Dashboard, Redemptions, Analytics, UserManagement, RealtimeRanking, IPAnalysis, ModelStatusMonitor, AutoGroup, Tokens } from './components'
 import { useAuth } from './contexts/AuthContext'
 import { WarmupScreen } from './components/WarmupScreen'
 
 // Valid tabs
-const validTabs: TabType[] = ['dashboard', 'topups', 'risk', 'ip-analysis', 'analytics', 'model-status', 'users', 'generator', 'redemptions', 'history']
+const validTabs: TabType[] = ['dashboard', 'topups', 'risk', 'ip-analysis', 'analytics', 'model-status', 'users', 'tokens', 'auto-group', 'generator', 'redemptions', 'history']
 
 // Get initial tab from URL pathname (supports sub-routes like /risk/ip)
 const getInitialTab = (): TabType => {
@@ -47,16 +47,16 @@ function App() {
             'Authorization': `Bearer ${token}`,
           },
         })
-        
+
         // 处理 401 未授权错误 - token 失效，需要重新登录
         if (response.status === 401) {
           console.warn('Token invalid or expired, logging out...')
           logout()
           return
         }
-        
+
         const data = await response.json()
-        
+
         if (data.success && data.data.status === 'ready') {
           // 后端已预热完成，直接进入
           setWarmupState('ready')
@@ -147,6 +147,10 @@ function App() {
         return <ModelStatusMonitor />
       case 'users':
         return <UserManagement />
+      case 'tokens':
+        return <Tokens />
+      case 'auto-group':
+        return <AutoGroup />
       default:
         return <Dashboard />
     }
