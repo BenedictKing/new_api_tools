@@ -171,10 +171,10 @@ docker compose down
 go mod download
 
 # 运行服务
-go run cmd/server/main.go
+go run main.go
 
 # 或构建二进制
-go build -o server cmd/server/main.go
+go build -o server main.go
 ./server
 ```
 
@@ -377,7 +377,7 @@ func YourHandler(c *gin.Context) {
 3. **注册路由**
 
 ```go
-// cmd/server/main.go
+// main.go
 yourModule := authenticated.Group("/your-module")
 {
     yourModule.GET("/endpoint", handler.YourHandler)

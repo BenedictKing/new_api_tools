@@ -2,7 +2,7 @@
 
 # 变量定义
 BINARY_NAME=newapi-tools
-MAIN_PATH=./cmd/server
+MAIN_PATH=./main.go
 BUILD_DIR=../dist
 AIR_VERSION=v1.52.0
 # 支持环境变量覆盖 VERSION（用于 Docker 构建时传入）

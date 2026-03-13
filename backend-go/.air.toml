@@ -9,7 +9,7 @@ tmp_dir = "tmp"
 # 构建配置
 [build]
   # 编译命令 (可以添加自定义参数)
-  cmd = "go build -o ./tmp/main ./cmd/server"
+  cmd = "go build -o ./tmp/main ."
   # 运行的二进制文件
   bin = "tmp/main"
   # 自定义运行时参数 (比如: ["run", "test", "-v"])
@@ -17,7 +17,7 @@ tmp_dir = "tmp"
   # 监听的文件扩展名
   include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "toml", "env"]
   # 忽略的文件/文件夹
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "frontend", "dist", ".git", ".github", ".vscode", ".idea"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "frontend", "dist", ".git", ".github", ".vscode", ".idea","cmd","data","docker","frontend"]
   # 监听指定的目录
   include_dir = []
   # 监听指定的文件（包括 .env）

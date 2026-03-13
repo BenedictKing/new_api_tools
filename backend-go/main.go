@@ -247,6 +247,12 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 				aiBan.POST("/models", handler.UpdateAIModelsHandler)
 			}
 
+			// 自动分组
+			handler.RegisterAutoGroupRoutes(authenticated)
+
+			// 令牌管理
+			handler.RegisterTokenRoutes(authenticated)
+
 			// LinuxDo Lookup
 			handler.RegisterLinuxDoLookupRoutes(authenticated)
 
