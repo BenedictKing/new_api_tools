@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './Toast'
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import * as echarts from 'echarts/core'
+import { MapChart } from 'echarts/charts'
+import { TooltipComponent, VisualMapComponent, GeoComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import {
   Globe, MapPin, RefreshCw, Loader2, TrendingUp,
   AlertTriangle, Activity, ChevronRight, ChevronDown, Timer, Map as MapIcon
@@ -11,6 +14,8 @@ import { IPLookup } from './IPLookup'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card'
 import { Button } from './ui/button'
 import { cn } from '../lib/utils'
+
+echarts.use([MapChart, TooltipComponent, VisualMapComponent, GeoComponent, CanvasRenderer])
 
 interface RegionStats {
   country: string
@@ -952,8 +957,9 @@ export function IPAnalysis() {
             </div>
           ) : data && (mapType === 'world' ? data.by_country.length > 0 : data.by_province.length > 0) ? (
             <div className="relative overflow-hidden rounded-b-lg">
-              <ReactECharts
+              <ReactEChartsCore
                 key={`${mapType}-${isDarkMode ? 'dark' : 'light'}`}
+                echarts={echarts}
                 option={currentMapOption}
                 style={{ height: '450px', width: '100%' }}
                 opts={{ renderer: 'canvas' }}

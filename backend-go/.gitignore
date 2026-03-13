@@ -3,7 +3,6 @@
 .gomodcache/
 
 # Binary output
-/backend-go
 *.exe
 *.exe~
 *.dll
@@ -29,3 +28,5 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+data/

@@ -1,12 +1,41 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react'
 import { cn } from '../lib/utils'
 import { Loader2, Timer, Activity, Zap, Sun, Moon, Minimize2, Terminal, Leaf, Droplets, Command, LayoutGrid, Bot, MessageSquareQuote, Triangle, Sparkles, CreditCard, GitBranch, Gamepad2, Rocket, Brain } from 'lucide-react'
-import {
-  OpenAI, Gemini, DeepSeek, SiliconCloud, Groq, Ollama, Claude, Mistral,
-  Minimax, Baichuan, Moonshot, Spark, Qwen, Yi, Hunyuan, Stepfun, ZeroOne,
-  Zhipu, ChatGLM, Cohere, Perplexity, Together, OpenRouter, Fireworks,
-  Ai360, Doubao, Wenxin, Meta, Coze, Cerebras, Kimi, NewAPI, ZAI, ModelScope
-} from '@lobehub/icons'
+
+const OpenAI = lazy(() => import('@lobehub/icons/es/OpenAI'))
+const Gemini = lazy(() => import('@lobehub/icons/es/Gemini'))
+const DeepSeek = lazy(() => import('@lobehub/icons/es/DeepSeek'))
+const SiliconCloud = lazy(() => import('@lobehub/icons/es/SiliconCloud'))
+const Groq = lazy(() => import('@lobehub/icons/es/Groq'))
+const Ollama = lazy(() => import('@lobehub/icons/es/Ollama'))
+const Claude = lazy(() => import('@lobehub/icons/es/Claude'))
+const Mistral = lazy(() => import('@lobehub/icons/es/Mistral'))
+const Minimax = lazy(() => import('@lobehub/icons/es/Minimax'))
+const Baichuan = lazy(() => import('@lobehub/icons/es/Baichuan'))
+const Moonshot = lazy(() => import('@lobehub/icons/es/Moonshot'))
+const Spark = lazy(() => import('@lobehub/icons/es/Spark'))
+const Qwen = lazy(() => import('@lobehub/icons/es/Qwen'))
+const Yi = lazy(() => import('@lobehub/icons/es/Yi'))
+const Hunyuan = lazy(() => import('@lobehub/icons/es/Hunyuan'))
+const Stepfun = lazy(() => import('@lobehub/icons/es/Stepfun'))
+const ZeroOne = lazy(() => import('@lobehub/icons/es/ZeroOne'))
+const Zhipu = lazy(() => import('@lobehub/icons/es/Zhipu'))
+const ChatGLM = lazy(() => import('@lobehub/icons/es/ChatGLM'))
+const Cohere = lazy(() => import('@lobehub/icons/es/Cohere'))
+const Perplexity = lazy(() => import('@lobehub/icons/es/Perplexity'))
+const Together = lazy(() => import('@lobehub/icons/es/Together'))
+const OpenRouter = lazy(() => import('@lobehub/icons/es/OpenRouter'))
+const Fireworks = lazy(() => import('@lobehub/icons/es/Fireworks'))
+const Ai360 = lazy(() => import('@lobehub/icons/es/Ai360'))
+const Doubao = lazy(() => import('@lobehub/icons/es/Doubao'))
+const Wenxin = lazy(() => import('@lobehub/icons/es/Wenxin'))
+const Meta = lazy(() => import('@lobehub/icons/es/Meta'))
+const Coze = lazy(() => import('@lobehub/icons/es/Coze'))
+const Cerebras = lazy(() => import('@lobehub/icons/es/Cerebras'))
+const Kimi = lazy(() => import('@lobehub/icons/es/Kimi'))
+const NewAPI = lazy(() => import('@lobehub/icons/es/NewAPI'))
+const ZAI = lazy(() => import('@lobehub/icons/es/ZAI'))
+const ModelScope = lazy(() => import('@lobehub/icons/es/ModelScope'))
 
 // ============================================================================
 // Types
@@ -94,7 +123,13 @@ interface ModelLogoProps {
 
 function ModelLogo({ modelName, size = 20, className }: ModelLogoProps) {
   const Logo = useMemo(() => getModelLogo(modelName), [modelName])
-  if (Logo) return <Logo size={size} className={className} />
+  if (Logo) {
+    return (
+      <Suspense fallback={<Brain size={size} className={cn("text-current opacity-50", className)} />}>
+        <Logo size={size} className={className} />
+      </Suspense>
+    )
+  }
   return <Brain size={size} className={cn("text-current opacity-50", className)} />
 }
 

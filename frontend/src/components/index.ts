@@ -1,3 +1,5 @@
+import type { ComponentType, LazyExoticComponent } from 'react'
+
 export { Login } from './Login'
 export { Layout, type TabType } from './Layout'
 export { ToastProvider, ToastContainer, useToast, type ToastType, type ToastMessage } from './Toast'
@@ -17,3 +19,5 @@ export { ModelStatusMonitor } from './ModelStatusMonitor'
 export { ModelStatusEmbed } from './ModelStatusEmbed'
 export { AutoGroup } from './AutoGroup'
 export { Tokens } from './Tokens'
+
+export type TabComponent = ComponentType | LazyExoticComponent<ComponentType>

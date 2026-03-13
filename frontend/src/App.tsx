@@ -1,10 +1,41 @@
-import { useState, useEffect } from 'react'
-import { Login, Layout, TabType, Generator, History, TopUps, Dashboard, Redemptions, Analytics, UserManagement, RealtimeRanking, IPAnalysis, ModelStatusMonitor, AutoGroup, Tokens } from './components'
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent } from 'react'
+import { Login } from './components/Login'
+import { Layout, type TabType } from './components/Layout'
 import { useAuth } from './contexts/AuthContext'
 import { WarmupScreen } from './components/WarmupScreen'
 
+const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })))
+const Generator = lazy(() => import('./components/Generator').then(module => ({ default: module.Generator })))
+const History = lazy(() => import('./components/History').then(module => ({ default: module.History })))
+const TopUps = lazy(() => import('./components/TopUps').then(module => ({ default: module.TopUps })))
+const Redemptions = lazy(() => import('./components/Redemptions').then(module => ({ default: module.Redemptions })))
+const Analytics = lazy(() => import('./components/Analytics').then(module => ({ default: module.Analytics })))
+const UserManagement = lazy(() => import('./components/UserManagement').then(module => ({ default: module.UserManagement })))
+const RealtimeRanking = lazy(() => import('./components/RealtimeRanking').then(module => ({ default: module.RealtimeRanking })))
+const IPAnalysis = lazy(() => import('./components/IPAnalysis').then(module => ({ default: module.IPAnalysis })))
+const ModelStatusMonitor = lazy(() => import('./components/ModelStatusMonitor').then(module => ({ default: module.ModelStatusMonitor })))
+const AutoGroup = lazy(() => import('./components/AutoGroup').then(module => ({ default: module.AutoGroup })))
+const Tokens = lazy(() => import('./components/Tokens').then(module => ({ default: module.Tokens })))
+
+type TabComponent = ComponentType | LazyExoticComponent<ComponentType>
+
 // Valid tabs
 const validTabs: TabType[] = ['dashboard', 'topups', 'risk', 'ip-analysis', 'analytics', 'model-status', 'users', 'tokens', 'auto-group', 'generator', 'redemptions', 'history']
+
+const tabComponents: Record<TabType, TabComponent> = {
+  dashboard: Dashboard,
+  topups: TopUps,
+  risk: RealtimeRanking,
+  'ip-analysis': IPAnalysis,
+  analytics: Analytics,
+  'model-status': ModelStatusMonitor,
+  users: UserManagement,
+  tokens: Tokens,
+  'auto-group': AutoGroup,
+  generator: Generator,
+  redemptions: Redemptions,
+  history: History,
+}
 
 // Get initial tab from URL pathname (supports sub-routes like /risk/ip)
 const getInitialTab = (): TabType => {
@@ -102,6 +133,8 @@ function App() {
     setWarmupState('ready')
   }
 
+  const ActiveTabComponent = useMemo(() => tabComponents[activeTab] ?? Dashboard, [activeTab])
+
   if (!isAuthenticated) {
     return <Login onLogin={login} />
   }
@@ -125,40 +158,20 @@ function App() {
     return <WarmupScreen onReady={handleWarmupReady} />
   }
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard />
-      case 'generator':
-        return <Generator />
-      case 'redemptions':
-        return <Redemptions />
-      case 'history':
-        return <History />
-      case 'topups':
-        return <TopUps />
-      case 'risk':
-        return <RealtimeRanking />
-      case 'ip-analysis':
-        return <IPAnalysis />
-      case 'analytics':
-        return <Analytics />
-      case 'model-status':
-        return <ModelStatusMonitor />
-      case 'users':
-        return <UserManagement />
-      case 'tokens':
-        return <Tokens />
-      case 'auto-group':
-        return <AutoGroup />
-      default:
-        return <Dashboard />
-    }
-  }
-
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} onLogout={logout}>
-      {renderContent()}
+      <Suspense
+        fallback={
+          <div className="min-h-[240px] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-10 h-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+              <p className="text-sm text-muted-foreground">正在加载页面...</p>
+            </div>
+          </div>
+        }
+      >
+        <ActiveTabComponent />
+      </Suspense>
     </Layout>
   )
 }
