@@ -75,16 +75,6 @@ var geoIPDatabases = []GeoIPDatabase{
 		MinSize:  5 * 1024 * 1024, // 5MB
 		Required: false,
 	},
-	{
-		Name:     "City",
-		Filename: "GeoLite2-City.mmdb",
-		URLs: []string{
-			"https://raw.githubusercontent.com/adysec/IP_database/main/geolite/GeoLite2-City.mmdb",
-			"https://raw.gitmirror.com/adysec/IP_database/main/geolite/GeoLite2-City.mmdb",
-		},
-		MinSize:  30 * 1024 * 1024, // 30MB
-		Required: false,
-	},
 }
 
 // GeoIPUpdateTask GeoIP 数据库更新任务

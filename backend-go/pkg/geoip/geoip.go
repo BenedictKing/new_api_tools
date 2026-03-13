@@ -16,21 +16,18 @@ import (
 var (
 	countryDB *geoip2.Reader
 	asnDB     *geoip2.Reader
-	cityDB    *geoip2.Reader
 	mu        sync.RWMutex
 	initOnce  sync.Once
 )
 
 // GeoInfo IP 地理信息
 type GeoInfo struct {
-	IP           string `json:"ip"`
-	Country      string `json:"country"`
-	CountryCode  string `json:"country_code"`
-	Continent    string `json:"continent"`
-	City         string `json:"city,omitempty"`
-	ASN          uint   `json:"asn,omitempty"`
-	Organization string `json:"organization,omitempty"`
-	IsValid      bool   `json:"is_valid"`
+	IP          string `json:"ip"`
+	Country     string `json:"country"`
+	CountryCode string `json:"country_code"`
+	Continent   string `json:"continent"`
+	ASN         uint   `json:"asn,omitempty"`
+	IsValid     bool   `json:"is_valid"`
 }
 
 // Init 初始化 GeoIP 数据库
@@ -54,7 +51,7 @@ func loadDatabases() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// 加载 Country 数据库（必需）
+	// 仅加载 Country 数据库（必需）
 	countryPath := filepath.Join(dbPath, "GeoLite2-Country.mmdb")
 	if _, err := os.Stat(countryPath); err == nil {
 		reader, err := geoip2.Open(countryPath)
@@ -78,7 +75,7 @@ func loadDatabases() error {
 		}
 	}
 
-	// 加载 ASN 数据库（可选）
+	// 加载 ASN 数据库（可选，用于双栈识别）
 	asnPath := filepath.Join(dbPath, "GeoLite2-ASN.mmdb")
 	if _, err := os.Stat(asnPath); err == nil {
 		reader, err := geoip2.Open(asnPath)
@@ -89,20 +86,6 @@ func loadDatabases() error {
 		} else {
 			asnDB = reader
 			logger.Info("GeoIP ASN 数据库加载成功", zap.String("path", asnPath))
-		}
-	}
-
-	// 加载 City 数据库（可选）
-	cityPath := filepath.Join(dbPath, "GeoLite2-City.mmdb")
-	if _, err := os.Stat(cityPath); err == nil {
-		reader, err := geoip2.Open(cityPath)
-		if err != nil {
-			logger.Warn("GeoIP City 数据库加载失败",
-				zap.String("path", cityPath),
-				zap.Error(err))
-		} else {
-			cityDB = reader
-			logger.Info("GeoIP City 数据库加载成功", zap.String("path", cityPath))
 		}
 	}
 
@@ -121,10 +104,6 @@ func Reload() error {
 		asnDB.Close()
 		asnDB = nil
 	}
-	if cityDB != nil {
-		cityDB.Close()
-		cityDB = nil
-	}
 	mu.Unlock()
 
 	return loadDatabases()
@@ -142,10 +121,6 @@ func Close() {
 	if asnDB != nil {
 		asnDB.Close()
 		asnDB = nil
-	}
-	if cityDB != nil {
-		cityDB.Close()
-		cityDB = nil
 	}
 }
 
@@ -174,7 +149,6 @@ func Lookup(ipStr string) *GeoInfo {
 	mu.RLock()
 	country := countryDB
 	asn := asnDB
-	city := cityDB
 	mu.RUnlock()
 
 	if country == nil {
@@ -202,17 +176,6 @@ func Lookup(ipStr string) *GeoInfo {
 	if asn != nil {
 		if asnRecord, err := asn.ASN(ip); err == nil {
 			info.ASN = asnRecord.AutonomousSystemNumber
-			info.Organization = asnRecord.AutonomousSystemOrganization
-		}
-	}
-
-	// 查询 City（如果可用）
-	if city != nil {
-		if cityRecord, err := city.City(ip); err == nil {
-			info.City = cityRecord.City.Names["zh-CN"]
-			if info.City == "" {
-				info.City = cityRecord.City.Names["en"]
-			}
 		}
 	}
 
@@ -220,14 +183,14 @@ func Lookup(ipStr string) *GeoInfo {
 }
 
 // LookupASN 仅查询 ASN 信息
-func LookupASN(ipStr string) (uint, string) {
+func LookupASN(ipStr string) uint {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
-		return 0, ""
+		return 0
 	}
 
 	if isPrivateIP(ip) {
-		return 0, "Private Network"
+		return 0
 	}
 
 	mu.RLock()
@@ -235,15 +198,15 @@ func LookupASN(ipStr string) (uint, string) {
 	mu.RUnlock()
 
 	if asn == nil {
-		return 0, ""
+		return 0
 	}
 
 	record, err := asn.ASN(ip)
 	if err != nil {
-		return 0, ""
+		return 0
 	}
 
-	return record.AutonomousSystemNumber, record.AutonomousSystemOrganization
+	return record.AutonomousSystemNumber
 }
 
 // BatchLookup 批量查询 IP 地理信息
@@ -297,13 +260,6 @@ func IsASNAvailable() bool {
 	return asnDB != nil
 }
 
-// IsCityAvailable 检查 City 服务是否可用
-func IsCityAvailable() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return cityDB != nil
-}
-
 // GetStatus 获取 GeoIP 服务状态
 func GetStatus() map[string]bool {
 	mu.RLock()
@@ -311,7 +267,6 @@ func GetStatus() map[string]bool {
 	return map[string]bool{
 		"country": countryDB != nil,
 		"asn":     asnDB != nil,
-		"city":    cityDB != nil,
 	}
 }
 
@@ -343,19 +298,13 @@ func GetIPVersion(ipStr string) IPVersion {
 }
 
 // GetLocationKey 获取位置键（用于双栈识别）
-// 格式: ASN:city:country_code
+// 格式: asn:country_code
 func (g *GeoInfo) GetLocationKey() string {
 	if !g.IsValid {
 		return ""
 	}
 
-	// 使用 ASN + 城市 + 国家代码作为位置标识
-	city := g.City
-	if city == "" {
-		city = "unknown"
-	}
-
-	return fmt.Sprintf("%d:%s:%s", g.ASN, city, g.CountryCode)
+	return fmt.Sprintf("%d:%s", g.ASN, g.CountryCode)
 }
 
 // IsDualStackPair 检查两个 IP 是否为双栈对（同一位置的 IPv4/IPv6）

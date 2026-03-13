@@ -10,20 +10,22 @@ import (
 )
 
 // IPGeoInfo represents IP geolocation information
+// 仅保留 Country 级别信息
+// ASN 由 pkg/geoip 处理（用于双栈识别）
 type IPGeoInfo struct {
 	IP          string
 	Country     string
 	CountryCode string
-	Region      string
-	City        string
 	Success     bool
 }
 
 // IPGeoService provides IP geolocation queries using MaxMind GeoLite2
+// 使用 GeoLite2-Country.mmdb
+// 用于基础国家识别（城市信息已移除）
 type IPGeoService struct {
-	cityReader *geoip2.Reader
-	mu         sync.RWMutex
-	available  bool
+	countryReader *geoip2.Reader
+	mu            sync.RWMutex
+	available     bool
 }
 
 var (
@@ -41,16 +43,16 @@ func GetIPGeoService() *IPGeoService {
 }
 
 func (s *IPGeoService) init() {
-	// Try to find GeoLite2-City.mmdb in common paths
+	// Try to find GeoLite2-Country.mmdb in common paths
 	paths := []string{
-		os.Getenv("GEOIP_DATA_DIR") + "/GeoLite2-City.mmdb",
-		"/app/data/geoip/GeoLite2-City.mmdb",
-		"./data/geoip/GeoLite2-City.mmdb",
-		"/usr/share/GeoIP/GeoLite2-City.mmdb",
+		os.Getenv("GEOIP_DATA_DIR") + "/GeoLite2-Country.mmdb",
+		"/app/data/geoip/GeoLite2-Country.mmdb",
+		"./data/geoip/GeoLite2-Country.mmdb",
+		"/usr/share/GeoIP/GeoLite2-Country.mmdb",
 	}
 
 	for _, path := range paths {
-		if path == "/GeoLite2-City.mmdb" {
+		if path == "/GeoLite2-Country.mmdb" {
 			continue // skip empty GEOIP_DATA_DIR + path
 		}
 		if _, err := os.Stat(path); err == nil {
@@ -59,13 +61,13 @@ func (s *IPGeoService) init() {
 				fmt.Printf("[GeoIP] Failed to open %s: %v\n", path, err)
 				continue
 			}
-			s.cityReader = reader
+			s.countryReader = reader
 			s.available = true
 			fmt.Printf("[GeoIP] Loaded database: %s\n", path)
 			return
 		}
 	}
-	fmt.Println("[GeoIP] No GeoLite2-City.mmdb found, IP geolocation disabled")
+	fmt.Println("[GeoIP] No GeoLite2-Country.mmdb found, IP geolocation disabled")
 }
 
 // IsAvailable returns whether the GeoIP service is available
@@ -79,7 +81,7 @@ func (s *IPGeoService) IsAvailable() bool {
 func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 	result := IPGeoInfo{IP: ip}
 
-	if !s.available || s.cityReader == nil {
+	if !s.available || s.countryReader == nil {
 		return result
 	}
 
@@ -99,7 +101,7 @@ func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	record, err := s.cityReader.City(parsedIP)
+	record, err := s.countryReader.Country(parsedIP)
 	if err != nil {
 		return result
 	}
@@ -113,22 +115,6 @@ func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 		result.Country = name
 	}
 	result.CountryCode = record.Country.IsoCode
-
-	// Region/Province
-	if len(record.Subdivisions) > 0 {
-		if name, ok := record.Subdivisions[0].Names["zh-CN"]; ok {
-			result.Region = name
-		} else if name, ok := record.Subdivisions[0].Names["en"]; ok {
-			result.Region = name
-		}
-	}
-
-	// City
-	if name, ok := record.City.Names["zh-CN"]; ok {
-		result.City = name
-	} else if name, ok := record.City.Names["en"]; ok {
-		result.City = name
-	}
 
 	return result
 }
@@ -146,9 +132,9 @@ func (s *IPGeoService) QueryBatch(ips []string) map[string]IPGeoInfo {
 func (s *IPGeoService) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cityReader != nil {
-		s.cityReader.Close()
-		s.cityReader = nil
+	if s.countryReader != nil {
+		s.countryReader.Close()
+		s.countryReader = nil
 		s.available = false
 	}
 }
