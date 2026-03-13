@@ -793,7 +793,7 @@ export function Dashboard() {
           icon={Zap}
           user={analyticsSummary?.request_king}
           valueLabel="总请求数"
-          value={analyticsSummary?.request_king?.request_count.toLocaleString()}
+          value={analyticsSummary?.request_king?.request_count?.toLocaleString('zh-CN') ?? '0'}
           gradient="from-blue-600 to-indigo-600"
           accentColor="text-blue-100"
         />
