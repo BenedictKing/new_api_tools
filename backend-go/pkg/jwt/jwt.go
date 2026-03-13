@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/BenedictKing/new_api_tools/internal/config"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Claims JWT 声明

@@ -1,9 +1,9 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 

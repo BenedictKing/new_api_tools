@@ -13,7 +13,7 @@ import (
 var (
 	AvailableTimeWindows = []string{"1h", "6h", "12h", "24h"}
 	DefaultTimeWindow    = "24h"
-	AvailableThemes = []string{
+	AvailableThemes      = []string{
 		"daylight", "obsidian", "minimal", "neon", "forest", "ocean", "terminal",
 		"cupertino", "material", "openai", "anthropic", "vercel", "linear",
 		"stripe", "github", "discord", "tesla",

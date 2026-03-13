@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BenedictKing/new_api_tools/internal/config"
 	"github.com/BenedictKing/new_api_tools/pkg/jwt"
+	"github.com/gin-gonic/gin"
 )
 
 // AuthMiddleware JWT 认证中间件

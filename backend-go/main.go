@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BenedictKing/new_api_tools/frontend"
 	"github.com/BenedictKing/new_api_tools/internal/cache"
 	"github.com/BenedictKing/new_api_tools/internal/config"
@@ -20,6 +19,7 @@ import (
 	"github.com/BenedictKing/new_api_tools/internal/tasks"
 	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"github.com/BenedictKing/new_api_tools/pkg/jwt"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 

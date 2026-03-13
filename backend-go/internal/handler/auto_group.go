@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 var autoGroupService = service.NewAutoGroupService()

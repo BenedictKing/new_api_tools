@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"github.com/BenedictKing/new_api_tools/internal/database"
 	"github.com/BenedictKing/new_api_tools/internal/models"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
