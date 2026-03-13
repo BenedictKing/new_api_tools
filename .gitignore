@@ -94,7 +94,7 @@ nul
 docs/redis-sqlite-cache-architecture.md
 docs/cache-architecture.md
 .claude/
-CLAUDE.md
+
 test_cf_bypass.py
 test_cf_bypass_go/go.mod
 test_cf_bypass_go/go.sum
@@ -102,3 +102,4 @@ test_cf_bypass_go/main.go
 test_cf_bypass_go/test_cf.exe
 # Reference repositories (for development only)
 refs/
+tmp/
