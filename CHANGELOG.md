@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Dashboard 请求榜/土豪榜不显示**：统一前后端 top-users 接口契约
+  - 后端 `TopUser` 字段从 `requests/quota` 重命名为 `request_count/quota_used`，与前端期望一致
+  - 后端 `GetTopUsers` 新增 `period` 参数，支持 `24h/3d/7d/14d` 等时间范围查询（原先固定为"今天 00:00 起"）
+  - 前端 `fetchAnalyticsSummary` 改为并行两次请求（`order_by=requests` 和 `order_by=quota`），各取 limit=1，避免单次查询二次排序导致的 NaN 问题
+
 ### Changed
 - **前端依赖激进升级**：将所有核心依赖升级到最新版本（方案 B）
   - **Vite**: 5.0.8 → 7.3.1（跨 2 个大版本）

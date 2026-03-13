@@ -399,16 +399,16 @@ func (s *DashboardService) fetchDailyTrends(days int) ([]TrendData, error) {
 
 // TopUser 用户排行
 type TopUser struct {
-	UserID      int    `json:"user_id"`
-	Username    string `json:"username"`
-	Requests    int64  `json:"requests"`
-	Quota       int64  `json:"quota"`
-	LastRequest string `json:"last_request"`
+	UserID       int    `json:"user_id"`
+	Username     string `json:"username"`
+	RequestCount int64  `json:"request_count"`
+	QuotaUsed    int64  `json:"quota_used"`
+	LastRequest  string `json:"last_request"`
 }
 
 // GetTopUsers 获取用户排行
-func (s *DashboardService) GetTopUsers(limit int, orderBy string) ([]TopUser, error) {
-	cacheKey := cache.CacheKey("dashboard", "top-users", orderBy, fmt.Sprintf("%d", limit))
+func (s *DashboardService) GetTopUsers(period string, limit int, orderBy string) ([]TopUser, error) {
+	cacheKey := cache.CacheKey("dashboard", "top-users", period, orderBy, fmt.Sprintf("%d", limit))
 
 	var data []TopUser
 	wrapper := &cache.CacheWrapper{
@@ -417,37 +417,57 @@ func (s *DashboardService) GetTopUsers(limit int, orderBy string) ([]TopUser, er
 	}
 
 	err := wrapper.GetOrSet(&data, func() (interface{}, error) {
-		return s.fetchTopUsers(limit, orderBy)
+		return s.fetchTopUsers(period, limit, orderBy)
 	})
 
 	return data, err
 }
 
 // fetchTopUsers 获取用户排行数据
-func (s *DashboardService) fetchTopUsers(limit int, orderBy string) ([]TopUser, error) {
+func (s *DashboardService) fetchTopUsers(period string, limit int, orderBy string) ([]TopUser, error) {
 	db := database.GetMainDB()
 
-	// 获取今日数据（Unix 时间戳）
+	// 根据 period 计算时间范围（与 fetchUsageData 保持一致）
 	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	var startTime int64
+	switch period {
+	case "today":
+		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	case "1h":
+		startTime = now.Add(-1 * time.Hour).Unix()
+	case "6h":
+		startTime = now.Add(-6 * time.Hour).Unix()
+	case "24h":
+		startTime = now.Add(-24 * time.Hour).Unix()
+	case "3d":
+		startTime = now.Add(-3 * 24 * time.Hour).Unix()
+	case "7d", "week":
+		startTime = now.Add(-7 * 24 * time.Hour).Unix()
+	case "14d":
+		startTime = now.Add(-14 * 24 * time.Hour).Unix()
+	case "month":
+		startTime = now.AddDate(0, -1, 0).Unix()
+	default:
+		startTime = now.Add(-24 * time.Hour).Unix()
+	}
 
-	orderClause := "requests DESC"
+	orderClause := "request_count DESC"
 	if orderBy == "quota" {
-		orderClause = "quota DESC"
+		orderClause = "quota_used DESC"
 	}
 
 	var results []struct {
-		UserID      int
-		Username    string
-		Requests    int64
-		Quota       int64
-		LastRequest int64
+		UserID       int
+		Username     string
+		RequestCount int64
+		QuotaUsed    int64
+		LastRequest  int64
 	}
 
 	err := db.Table("logs").
-		Select("logs.user_id, users.username, COUNT(*) as requests, COALESCE(SUM(logs.quota), 0) as quota, MAX(logs.created_at) as last_request").
+		Select("logs.user_id, users.username, COUNT(*) as request_count, COALESCE(SUM(logs.quota), 0) as quota_used, MAX(logs.created_at) as last_request").
 		Joins("LEFT JOIN users ON logs.user_id = users.id").
-		Where("logs.created_at >= ? AND logs.type = ?", todayStart, models.LogTypeConsume).
+		Where("logs.created_at >= ? AND logs.type = ?", startTime, models.LogTypeConsume).
 		Group("logs.user_id, users.username").
 		Order(orderClause).
 		Limit(limit).
@@ -461,11 +481,11 @@ func (s *DashboardService) fetchTopUsers(limit int, orderBy string) ([]TopUser, 
 	data := make([]TopUser, len(results))
 	for i, r := range results {
 		data[i] = TopUser{
-			UserID:      r.UserID,
-			Username:    r.Username,
-			Requests:    r.Requests,
-			Quota:       r.Quota,
-			LastRequest: time.Unix(r.LastRequest, 0).Format("2006-01-02 15:04:05"),
+			UserID:       r.UserID,
+			Username:     r.Username,
+			RequestCount: r.RequestCount,
+			QuotaUsed:    r.QuotaUsed,
+			LastRequest:  time.Unix(r.LastRequest, 0).Format("2006-01-02 15:04:05"),
 		}
 	}
 

@@ -5,10 +5,10 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BenedictKing/new_api_tools/internal/cache"
 	"github.com/BenedictKing/new_api_tools/internal/logger"
 	"github.com/BenedictKing/new_api_tools/internal/service"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -89,10 +89,14 @@ func GetHourlyTrends(c *gin.Context) {
 
 // GetTopUsers 获取用户排行
 func GetTopUsers(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	period := c.DefaultQuery("period", "24h")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
 	orderBy := c.DefaultQuery("order_by", "requests")
 
-	data, err := dashboardService.GetTopUsers(limit, orderBy)
+	data, err := dashboardService.GetTopUsers(period, limit, orderBy)
 	if err != nil {
 		logger.Error("获取用户排行失败", zap.Error(err))
 		Error(c, 500, "获取用户排行失败")

@@ -207,7 +207,7 @@ func warmupDashboard(ctx context.Context) error {
 		{"usage_7d", func() error { _, err := dashboardService.GetUsage("7d"); return err }},
 		{"models_7d", func() error { _, err := dashboardService.GetModelUsage("7d", 8); return err }},
 		{"daily_trends_7d", func() error { _, err := dashboardService.GetDailyTrends(7); return err }},
-		{"top_users_7d", func() error { _, err := dashboardService.GetTopUsers(10, "requests"); return err }},
+		{"top_users_7d", func() error { _, err := dashboardService.GetTopUsers("7d", 10, "requests"); return err }},
 		// 其他时间周期
 		{"usage_24h", func() error { _, err := dashboardService.GetUsage("24h"); return err }},
 		{"hourly_trends_24h", func() error { _, err := dashboardService.GetHourlyTrends(24); return err }},
@@ -508,7 +508,7 @@ func CacheRefreshTask(ctx context.Context) error {
 		logger.Warn("刷新每日趋势失败", zap.Error(err))
 	}
 
-	if _, err := dashboardService.GetTopUsers(10, "requests"); err != nil {
+	if _, err := dashboardService.GetTopUsers("7d", 10, "requests"); err != nil {
 		logger.Warn("刷新 Top 用户失败", zap.Error(err))
 	}
 

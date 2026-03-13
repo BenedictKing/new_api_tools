@@ -190,31 +190,27 @@ export function Dashboard() {
   const fetchAnalyticsSummary = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
     try {
       const cacheParam = noCache ? '&no_cache=true' : ''
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/top-users?period=${period}&limit=10${cacheParam}`,
-        { headers: getAuthHeaders(), signal },
-      )
-      const data = await response.json()
+      // 并行请求请求榜首和土豪榜首，由后端排序，直接取第 1 条
+      const [reqRes, quotaRes] = await Promise.all([
+        fetch(
+          `${apiUrl}/api/dashboard/top-users?period=${period}&limit=1&order_by=requests${cacheParam}`,
+          { headers: getAuthHeaders(), signal },
+        ),
+        fetch(
+          `${apiUrl}/api/dashboard/top-users?period=${period}&limit=1&order_by=quota${cacheParam}`,
+          { headers: getAuthHeaders(), signal },
+        ),
+      ])
+      const [reqData, quotaData] = await Promise.all([reqRes.json(), quotaRes.json()])
 
-      if (data.success && data.data.length > 0) {
-        const sortedByRequest = [...data.data].sort((a: any, b: any) => b.request_count - a.request_count)
-        const sortedByQuota = [...data.data].sort((a: any, b: any) => b.quota_used - a.quota_used)
+      const requestKing = reqData.success && reqData.data?.length > 0
+        ? { user_id: reqData.data[0].user_id, username: reqData.data[0].username, request_count: reqData.data[0].request_count }
+        : null
+      const quotaKing = quotaData.success && quotaData.data?.length > 0
+        ? { user_id: quotaData.data[0].user_id, username: quotaData.data[0].username, quota_used: quotaData.data[0].quota_used }
+        : null
 
-        setAnalyticsSummary({
-          request_king: sortedByRequest.length > 0 ? {
-            user_id: sortedByRequest[0].user_id,
-            username: sortedByRequest[0].username,
-            request_count: sortedByRequest[0].request_count,
-          } : null,
-          quota_king: sortedByQuota.length > 0 ? {
-            user_id: sortedByQuota[0].user_id,
-            username: sortedByQuota[0].username,
-            quota_used: sortedByQuota[0].quota_used,
-          } : null,
-        })
-      } else {
-        setAnalyticsSummary(null)
-      }
+      setAnalyticsSummary({ request_king: requestKing, quota_king: quotaKing })
       return true
     } catch (error) { console.error('Failed to fetch analytics summary:', error) }
     return false
