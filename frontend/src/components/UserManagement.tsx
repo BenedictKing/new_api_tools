@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './Toast'
+import { createAuthClient, createUsersApi, createAutoGroupApi, createAiBanApi } from '../api'
 import {
   Users,
   UserCheck,
@@ -93,6 +94,9 @@ interface UserInfo {
 export function UserManagement() {
   const { token } = useAuth()
   const { showToast } = useToast()
+  const usersApi = useMemo(() => createUsersApi(createAuthClient(token ?? '')), [token])
+  const autoGroupApi = useMemo(() => createAutoGroupApi(createAuthClient(token ?? '')), [token])
+  const aiBanApi = useMemo(() => createAiBanApi(createAuthClient(token ?? '')), [token])
 
   const [stats, setStats] = useState<ActivityStats | null>(null)
   const [users, setUsers] = useState<UserInfo[]>([])
@@ -184,85 +188,58 @@ export function UserManagement() {
     })
   }
 
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  }), [token])
-
   const fetchStats = useCallback(async (quick = false) => {
     try {
-      const params = quick ? '?quick=true' : ''
-      const response = await fetch(`${apiUrl}/api/users/stats${params}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        setStats(data.data)
-        // 如果是快速模式且活跃度数据为0，异步加载完整数据
-        if (quick && data.data.active_users === 0 && data.data.inactive_users === 0 && data.data.very_inactive_users === 0) {
-          // 延迟加载完整统计，不阻塞用户列表
+      const { data: resp } = await usersApi.stats(quick ? { quick: true } : undefined)
+      if (resp?.data) {
+        const statsData = resp.data as ActivityStats
+        setStats(statsData)
+        if (quick && statsData.active_users === 0 && statsData.inactive_users === 0 && statsData.very_inactive_users === 0) {
           setTimeout(() => fetchStats(false), 100)
         }
       }
     } catch (error) {
       console.error('Failed to fetch stats:', error)
     }
-  }, [apiUrl, getAuthHeaders])
+  }, [usersApi])
 
   // 获取软删除用户数量
   const fetchSoftDeletedCount = useCallback(async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/users/soft-deleted/count`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        setSoftDeletedCount(data.data?.count || 0)
-      }
+      const { data: resp } = await usersApi.softDeletedCount()
+      if (resp?.data) setSoftDeletedCount((resp.data as { count: number }).count || 0)
     } catch (error) {
       console.error('Failed to fetch soft deleted count:', error)
     }
-  }, [apiUrl, getAuthHeaders])
+  }, [usersApi])
 
   // 获取可用分组列表
   const fetchGroups = useCallback(async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/auto-group/groups`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        setGroups(data.data.items)
-      }
+      const { data: resp } = await autoGroupApi.groups()
+      if (resp?.data) setGroups((resp.data as { items: GroupInfo[] }).items || [])
     } catch (error) {
       console.error('Failed to fetch groups:', error)
     }
-  }, [apiUrl, getAuthHeaders])
+  }, [autoGroupApi])
 
   // 批量移动用户到指定分组
   const batchMoveUsers = async () => {
-    if (selectedUserIds.size === 0) {
-      showToast('error', '请选择用户')
-      return
-    }
-    if (!batchTargetGroup) {
-      showToast('error', '请选择目标分组')
-      return
-    }
+    if (selectedUserIds.size === 0) { showToast('error', '请选择用户'); return }
+    if (!batchTargetGroup) { showToast('error', '请选择目标分组'); return }
     setBatchMoving(true)
     try {
-      const response = await fetch(`${apiUrl}/api/auto-group/batch-move`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          user_ids: Array.from(selectedUserIds),
-          target_group: batchTargetGroup,
-        }),
+      const { data: resp, error } = await autoGroupApi.batchMove({
+        user_ids: Array.from(selectedUserIds),
+        target_group: batchTargetGroup,
       })
-      const data = await response.json()
-      if (data.success || data.data?.success_count > 0) {
-        showToast('success', data.data?.message || `成功移动 ${data.data?.success_count || 0} 个用户`)
+      if (!error && (resp?.success || ((resp?.data as { success_count?: number })?.success_count ?? 0) > 0)) {
+        showToast('success', (resp?.data as { message?: string })?.message || `成功移动用户`)
         setSelectedUserIds(new Set())
         setBatchTargetGroup('')
         fetchUsers()
       } else {
-        showToast('error', data.message || '移动失败')
+        showToast('error', resp?.message || '移动失败')
       }
     } catch (error) {
       console.error('Failed to batch move users:', error)
@@ -285,31 +262,24 @@ export function UserManagement() {
       requireConfirmText: true,
       onConfirm: () => executePurgeSoftDeleted(),
     })
-
     try {
-      const response = await fetch(`${apiUrl}/api/users/soft-deleted/purge`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ dry_run: true }),
-      })
-      const data = await response.json()
-      if (data.success && data.data) {
-        const count = data.data.count
-        const usernames = data.data.users || []
-        if (count === 0) {
+      const { data: resp, error } = await usersApi.purgeSoftDeleted({ dry_run: true })
+      if (!error && resp?.data) {
+        const d = resp.data as { count: number; users: string[] }
+        if (d.count === 0) {
           setConfirmDialog(prev => ({ ...prev, isOpen: false }))
           showToast('info', '没有需要清理的软删除用户')
           return
         }
         setConfirmDialog(prev => ({
           ...prev,
-          message: `确定要彻底清理 ${count} 个已软删除的用户吗？\n\n⚠️ 这些用户之前已被软删除，此操作将永久移除他们及所有关联数据，不可恢复！`,
-          details: { count, users: usernames },
+          message: `确定要彻底清理 ${d.count} 个已软删除的用户吗？\n\n⚠️ 这些用户之前已被软删除，此操作将永久移除他们及所有关联数据，不可恢复！`,
+          details: { count: d.count, users: d.users || [] },
           loading: false,
         }))
       } else {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
-        showToast('error', data.message || '预览失败')
+        showToast('error', '预览失败')
       }
     } catch (error) {
       console.error('Failed to preview purge:', error)
@@ -323,19 +293,13 @@ export function UserManagement() {
     setConfirmDialog(prev => ({ ...prev, isOpen: false }))
     setPurgingSoftDeleted(true)
     try {
-      const response = await fetch(`${apiUrl}/api/users/soft-deleted/purge`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ dry_run: false }),
-      })
-      const data = await response.json()
-      if (data.success) {
-        showToast('success', data.message)
+      const { data: resp, error } = await usersApi.purgeSoftDeleted({ dry_run: false })
+      if (!error && resp?.success) {
+        showToast('success', resp.message || '清理完成')
         setSoftDeletedCount(0)
-        // 刷新统计
         fetchStats()
       } else {
-        showToast('error', data.message || '清理失败')
+        showToast('error', resp?.message || '清理失败')
       }
     } catch (error) {
       console.error('Failed to purge soft deleted:', error)
@@ -348,21 +312,18 @@ export function UserManagement() {
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        page_size: pageSize.toString(),
+      const { data: resp, error } = await usersApi.list({
+        page,
+        page_size: pageSize,
+        ...(search ? { search } : {}),
+        ...(activityFilter && activityFilter !== 'all' ? { order_by: activityFilter } : {}),
+        ...(groupFilter ? { search: groupFilter } : {}),
       })
-      if (search) params.append('search', search)
-      if (activityFilter && activityFilter !== 'all') params.append('activity', activityFilter)
-      if (groupFilter) params.append('group', groupFilter)
-      if (sourceFilter) params.append('source', sourceFilter)
-
-      const response = await fetch(`${apiUrl}/api/users?${params}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        setUsers(data.data.items)
-        setTotal(data.data.total)
-        setTotalPages(data.data.total_pages)
+      if (!error && resp?.data) {
+        const d = resp.data as { items: UserInfo[]; total: number; total_pages: number }
+        setUsers(d.items || [])
+        setTotal(d.total || 0)
+        setTotalPages(d.total_pages || 0)
       }
     } catch (error) {
       console.error('Failed to fetch users:', error)
@@ -370,27 +331,22 @@ export function UserManagement() {
     } finally {
       setLoading(false)
     }
-  }, [apiUrl, getAuthHeaders, page, pageSize, search, activityFilter, groupFilter, sourceFilter, showToast])
+  }, [usersApi, page, pageSize, search, activityFilter, groupFilter, showToast])
 
   // 添加用户到 AI 封禁白名单
   const addToWhitelist = useCallback(async (userId: number, username: string) => {
     try {
-      const response = await fetch(`${apiUrl}/api/ai-ban/whitelist/add`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ user_id: userId }),
-      })
-      const data = await response.json()
-      if (data.success) {
+      const { data: resp, error } = await aiBanApi.addWhitelist({ user_id: userId })
+      if (!error && resp?.success) {
         showToast('success', `已将 ${username} 添加到 AI 封禁白名单`)
       } else {
-        showToast('error', data.message || '添加失败')
+        showToast('error', resp?.message || '添加失败')
       }
     } catch (error) {
       console.error('Failed to add to whitelist:', error)
       showToast('error', '添加到白名单失败')
     }
-  }, [apiUrl, getAuthHeaders, showToast])
+  }, [aiBanApi, showToast])
 
   // 单个用户删除状态
   const [deleteUserTarget, setDeleteUserTarget] = useState<{ userId: number; username: string; activityLevel: string } | null>(null)
@@ -412,24 +368,15 @@ export function UserManagement() {
 
   const executeDeleteUser = async () => {
     if (!deleteUserTarget) return
-
     const { userId, activityLevel } = deleteUserTarget
-    const hardDelete = deleteMode === 'hard'
-
     setConfirmDialog(prev => ({ ...prev, isOpen: false }))
     setDeleting(true)
     try {
-      const response = await fetch(`${apiUrl}/api/users/${userId}?hard_delete=${hardDelete}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      })
-      const data = await response.json()
-      if (data.success) {
-        showToast('success', data.message)
-        // 直接从本地状态移除用户，避免重新加载
+      const { error } = await usersApi.deleteById(userId)
+      if (!error) {
+        showToast('success', '删除成功')
         setUsers(prev => prev.filter(u => u.id !== userId))
         setTotal(prev => prev - 1)
-        // 更新统计数据（本地计算）
         if (stats) {
           setStats(prev => prev ? {
             ...prev,
@@ -440,12 +387,9 @@ export function UserManagement() {
             never_requested: activityLevel === 'never' ? prev.never_requested - 1 : prev.never_requested,
           } : null)
         }
-        // 如果是软删除，更新软删除计数
-        if (!hardDelete) {
-          fetchSoftDeletedCount()
-        }
+        fetchSoftDeletedCount()
       } else {
-        showToast('error', data.message || '删除失败')
+        showToast('error', '删除失败')
       }
     } catch (error) {
       console.error('Failed to delete user:', error)
@@ -477,21 +421,19 @@ export function UserManagement() {
     })
 
     try {
-      const response = await fetch(`${apiUrl}/api/users/batch-delete`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ activity_level: level, dry_run: true, hard_delete: hardDelete }),
-      })
-      const data = await response.json()
-      if (data.success && data.data) {
-        const count = data.data.count
-        const usernames = data.data.users || []
+      const client = createAuthClient(token ?? '')
+      const { data: previewResp } = await (client.POST as (url: string, opts: object) => Promise<{ data: unknown }>)('/users/batch-delete', {
+        body: { activity_level: level, dry_run: true, hard_delete: hardDelete },
+      }) as { data: unknown }
+      const d = previewResp as { success?: boolean; data?: { count: number; users: string[] } } | undefined
+      if (d?.success && d.data) {
+        const count = d.data.count
+        const usernames = d.data.users || []
         if (count === 0) {
           setConfirmDialog(prev => ({ ...prev, isOpen: false }))
           showToast('info', '没有符合条件的用户')
           return
         }
-        // 更新弹窗内容
         const warningText = hardDelete
           ? `⚠️ 彻底删除将永久移除用户及所有关联数据（令牌、配额、任务等），此操作不可恢复！`
           : `此操作为软删除，数据可通过数据库恢复。`
@@ -503,7 +445,7 @@ export function UserManagement() {
         }))
       } else {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
-        showToast('error', data.message || '预览失败')
+        showToast('error', '预览失败')
       }
     } catch (error) {
       console.error('Failed to preview batch delete:', error)
@@ -514,32 +456,27 @@ export function UserManagement() {
 
   const executeBatchDelete = async (level: string, hardDelete: boolean = false) => {
     setConfirmDialog(prev => ({ ...prev, isOpen: false }))
-    const setLoading = level === 'very_inactive' ? setDeletingVeryInactive : setDeletingNever
-    setLoading(true)
+    const setLoadingState = level === 'very_inactive' ? setDeletingVeryInactive : setDeletingNever
+    setLoadingState(true)
     try {
-      const response = await fetch(`${apiUrl}/api/users/batch-delete`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ activity_level: level, dry_run: false, hard_delete: hardDelete }),
-      })
-      const data = await response.json()
-      if (data.success) {
-        showToast('success', data.message)
-        // 并行刷新数据
+      const client = createAuthClient(token ?? '')
+      const { data: resp } = await (client.POST as (url: string, opts: object) => Promise<{ data: unknown }>)('/users/batch-delete', {
+        body: { activity_level: level, dry_run: false, hard_delete: hardDelete },
+      }) as { data: unknown }
+      const d = resp as { success?: boolean; message?: string } | undefined
+      if (d?.success) {
+        showToast('success', d.message || '删除成功')
         setPage(1)
         Promise.all([fetchUsers(), fetchStats()])
-        // 如果是软删除，刷新软删除计数
-        if (!hardDelete) {
-          fetchSoftDeletedCount()
-        }
+        if (!hardDelete) fetchSoftDeletedCount()
       } else {
-        showToast('error', data.message || '批量删除失败')
+        showToast('error', d?.message || '批量删除失败')
       }
     } catch (error) {
       console.error('Failed to batch delete:', error)
       showToast('error', '批量删除失败')
     } finally {
-      setLoading(false)
+      setLoadingState(false)
     }
   }
 
@@ -582,17 +519,14 @@ export function UserManagement() {
     if (!selectedUser || !analysisDialogOpen) return
     setInvitedLoading(true)
     try {
-      const response = await fetch(`${apiUrl}/api/users/${selectedUser.id}/invited?page=${invitedPage}&page_size=10`, { headers: getAuthHeaders() })
-      const res = await response.json()
-      if (res.success) {
-        setInvitedUsers(res.data)
-      }
+      const { data: resp } = await usersApi.invited(selectedUser.id, { page: invitedPage, page_size: 10 })
+      if (resp?.data) setInvitedUsers(resp.data as typeof invitedUsers)
     } catch (e) {
       console.error('Failed to fetch invited users:', e)
     } finally {
       setInvitedLoading(false)
     }
-  }, [apiUrl, getAuthHeaders, selectedUser, analysisDialogOpen, invitedPage])
+  }, [usersApi, selectedUser, analysisDialogOpen, invitedPage])
 
   useEffect(() => {
     if (analysisDialogOpen && selectedUser) {
@@ -1020,17 +954,18 @@ export function UserManagement() {
                               if (!lid || linuxDoLookupLoading) return
                               setLinuxDoLookupLoading(lid)
                               try {
-                                const res = await fetch(`${apiUrl}/api/linuxdo/lookup/${encodeURIComponent(lid)}`, { headers: getAuthHeaders() })
-                                const data = await res.json()
-                                if (data.success && data.data?.profile_url) {
+                                const client = createAuthClient(token ?? '')
+                                const result = await (client.GET as (url: string, opts: object) => Promise<{ data: unknown }>)(`/linuxdo/lookup/${encodeURIComponent(lid)}`, {}) as { data: unknown }
+                                const data = result.data as { success?: boolean; data?: { profile_url?: string }; error_type?: string; message?: string; wait_seconds?: number; fallback_url?: string } | undefined
+                                if (data?.success && data.data?.profile_url) {
                                   window.open(data.data.profile_url, '_blank')
-                                } else if (data.error_type === 'rate_limit') {
+                                } else if (data?.error_type === 'rate_limit') {
                                   showToast('error', data.message || `请求被限速，请等待 ${data.wait_seconds || '?'} 秒后重试`)
-                                } else if (data.fallback_url) {
+                                } else if (data?.fallback_url) {
                                   window.open(data.fallback_url, '_blank')
                                   showToast('info', '服务器查询失败，已在新标签页打开 Linux.do 证书页面')
                                 } else {
-                                  showToast('error', data.message || '查询 Linux.do 用户名失败')
+                                  showToast('error', data?.message || '查询 Linux.do 用户名失败')
                                 }
                               } catch { showToast('error', '查询 Linux.do 用户名失败') }
                               finally { setLinuxDoLookupLoading(null) }

@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useToast } from './Toast'
 import { useAuth } from '../contexts/AuthContext'
+import { createAuthClient, createTopUpsApi } from '../api'
+import type { PaginatedResponse } from '../types/common'
 import { CreditCard, Loader2, RefreshCw, Copy, ExternalLink, CheckCircle2, Clock, XCircle, Search, Calendar, Filter, Undo2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -43,19 +45,12 @@ interface TopUpStatistics {
   refunded_money: number
 }
 
-interface PaginatedResponse {
-  items: TopUpRecord[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-}
-
 type StatusFilter = '' | 'pending' | 'success' | 'failed' | 'refunded'
 
 export function TopUps() {
   const { showToast } = useToast()
   const { token } = useAuth()
+  const api = useMemo(() => createTopUpsApi(createAuthClient(token ?? '')), [token])
 
   const [records, setRecords] = useState<TopUpRecord[]>([])
   const [statistics, setStatistics] = useState<TopUpStatistics | null>(null)
@@ -78,65 +73,52 @@ export function TopUps() {
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<{ id: number; username: string } | null>(null)
 
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  }), [token])
-
   // Fetch payment methods
   useEffect(() => {
     const fetchPaymentMethods = async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/top-ups/payment-methods`, { headers: getAuthHeaders() })
-        const data = await response.json()
-        if (data.success) {
-          setPaymentMethods(Array.isArray(data.data) ? data.data : [])
-        } else {
-          setPaymentMethods([])
-        }
+        const { data: resp, error } = await api.paymentMethods()
+        if (error) { console.error('Failed to fetch payment methods:', error); setPaymentMethods([]); return }
+        setPaymentMethods(Array.isArray(resp?.data) ? (resp.data as string[]) : [])
       } catch (error) { console.error('Failed to fetch payment methods:', error) }
     }
     fetchPaymentMethods()
-  }, [apiUrl, getAuthHeaders])
+  }, [api])
 
   const fetchStatistics = useCallback(async () => {
     setStatsLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (startDate) params.append('start_date', startDate)
-      if (endDate) params.append('end_date', endDate)
-      const response = await fetch(`${apiUrl}/api/top-ups/statistics?${params.toString()}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) setStatistics(data.data)
-    } catch (error) {
-      console.error('Failed to fetch statistics:', error)
+      const { data: resp, error } = await api.statistics({
+        ...(startDate ? { start_date: startDate } : {}),
+        ...(endDate ? { end_date: endDate } : {}),
+      })
+      if (error) { console.error('Failed to fetch statistics:', error); return }
+      if (resp?.data) setStatistics(resp.data as TopUpStatistics)
     } finally { setStatsLoading(false) }
-  }, [apiUrl, getAuthHeaders, startDate, endDate])
+  }, [api, startDate, endDate])
 
   const fetchRecords = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: page.toString(), page_size: pageSize.toString() })
-      if (statusFilter) params.append('status', statusFilter)
-      if (paymentMethodFilter) params.append('payment_method', paymentMethodFilter)
-      if (tradeNoSearch) params.append('trade_no', tradeNoSearch)
-      if (startDate) params.append('start_date', startDate)
-      if (endDate) params.append('end_date', endDate)
-
-      const response = await fetch(`${apiUrl}/api/top-ups?${params.toString()}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        const result: PaginatedResponse = data.data
-        setRecords(Array.isArray(result?.items) ? result.items : [])
-        setTotal(typeof result?.total === 'number' ? result.total : 0)
-        setTotalPages(typeof result?.total_pages === 'number' ? result.total_pages : 1)
-      } else { showToast('error', data.error?.message || '获取充值记录失败') }
+      const { data: resp, error } = await api.list({
+        page,
+        page_size: pageSize,
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(paymentMethodFilter ? { payment_method: paymentMethodFilter } : {}),
+        ...(tradeNoSearch ? { trade_no: tradeNoSearch } : {}),
+        ...(startDate ? { start_date: startDate } : {}),
+        ...(endDate ? { end_date: endDate } : {}),
+      })
+      if (error) { showToast('error', '获取充值记录失败'); return }
+      const result = resp?.data as PaginatedResponse<TopUpRecord> | undefined
+      setRecords(Array.isArray(result?.items) ? result.items : [])
+      setTotal(typeof result?.total === 'number' ? result.total : 0)
+      setTotalPages(typeof result?.total_pages === 'number' ? result.total_pages : 1)
     } catch (error) {
       showToast('error', '网络错误，请重试')
       console.error('Failed to fetch records:', error)
     } finally { setLoading(false) }
-  }, [apiUrl, getAuthHeaders, page, pageSize, statusFilter, paymentMethodFilter, tradeNoSearch, startDate, endDate, showToast])
+  }, [api, page, pageSize, statusFilter, paymentMethodFilter, tradeNoSearch, startDate, endDate, showToast])
 
   useEffect(() => { fetchRecords() }, [fetchRecords])
   useEffect(() => { fetchStatistics() }, [fetchStatistics])
@@ -156,21 +138,16 @@ export function TopUps() {
 
   const handleRefund = async () => {
     if (!selectedRecord) return
-
     setRefundingId(selectedRecord.id)
     try {
-      const response = await fetch(`${apiUrl}/api/top-ups/${selectedRecord.id}/refund`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      })
-      const data = await response.json()
-      if (response.ok && data.success) {
+      const { data: resp, error } = await api.refund(selectedRecord.id)
+      if (!error && resp?.success) {
         showToast('success', '退款成功')
         setShowRefundModal(false)
         fetchRecords()
         fetchStatistics()
       } else {
-        showToast('error', data.error?.message || '退款失败')
+        showToast('error', '退款失败')
       }
     } catch {
       showToast('error', '网络错误，请重试')

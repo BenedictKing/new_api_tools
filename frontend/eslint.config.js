@@ -30,6 +30,7 @@ export default tseslint.config(
       }],
       '@typescript-eslint/no-empty-object-type': 'warn',
       'prefer-const': 'warn',
+      // react-hooks v7 新增规则降级为 warn，避免阻断构建
       'react-hooks/static-components': 'warn',
       'react-hooks/set-state-in-effect': 'warn',
     },

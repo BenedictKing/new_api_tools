@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Loader2, CheckCircle2, XCircle, Server, AlertCircle, RefreshCw } from 'lucide-react'
 import { Progress } from './ui/progress'
@@ -88,10 +88,7 @@ export function WarmupScreen({ onReady }: WarmupScreenProps) {
   }, [apiUrl, token, onReady, logout])
 
   // Determine which step is currently "active"
-  const activeStepIndex = useMemo(() => {
-    if (!status?.steps) return -1;
-    return status.steps.findIndex(s => s.status === 'pending');
-  }, [status?.steps]);
+  const activeStepIndex = status?.steps ? status.steps.findIndex(s => s.status === 'pending') : -1;
 
   const getStepIcon = (step: WarmupStep, isActive: boolean) => {
     if (step.status === 'done') {

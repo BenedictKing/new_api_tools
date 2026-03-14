@@ -10,14 +10,14 @@ export function createUsersApi(client: AuthClient) {
       order_by?: string
     }) =>
       client.GET('/users', { params: { query: params } }),
-    stats: () =>
-      client.GET('/users/stats', {}),
+    stats: (params?: { quick?: boolean }) =>
+      client.GET('/users/stats', { params: { query: params } }),
     banned: (params?: { page?: number; page_size?: number }) =>
       client.GET('/users/banned', { params: { query: params } }),
     softDeletedCount: () =>
       client.GET('/users/soft-deleted/count', {}),
-    purgeSoftDeleted: () =>
-      client.POST('/users/soft-deleted/purge', {}),
+    purgeSoftDeleted: (body?: { dry_run?: boolean }) =>
+      client.POST('/users/soft-deleted/purge', { body: (body ?? {}) as never }),
     // DELETE /users/{user_id}
     deleteById: (user_id: number) =>
       client.DELETE('/users/{user_id}', { params: { path: { user_id } } }),
@@ -25,8 +25,8 @@ export function createUsersApi(client: AuthClient) {
       client.POST('/users/{user_id}/ban', { params: { path: { user_id } }, body: body as never }),
     unban: (user_id: number) =>
       client.POST('/users/{user_id}/unban', { params: { path: { user_id } } }),
-    invited: (user_id: number) =>
-      client.GET('/users/{user_id}/invited', { params: { path: { user_id } } }),
+    invited: (user_id: number, params?: { page?: number; page_size?: number }) =>
+      client.GET('/users/{user_id}/invited', { params: { path: { user_id }, query: params } }),
     batchDelete: (body: { user_ids: number[] }) =>
       client.POST('/users/batch-delete', { body: body as never }),
     disableToken: (token_id: number) =>

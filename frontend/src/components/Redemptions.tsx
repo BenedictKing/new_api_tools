@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useToast } from './Toast'
 import { useAuth } from '../contexts/AuthContext'
+import { createAuthClient, createRedemptionsApi } from '../api'
+import type { PaginatedResponse } from '../types/common'
 import { Trash2, Copy, Ticket, Loader2, RefreshCw, Filter, Search, Calendar, Tag, AlertCircle, CheckCircle2, XCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -37,19 +39,12 @@ interface RedemptionStatistics {
   expired_quota: number
 }
 
-interface PaginatedResponse {
-  items: RedemptionCode[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-}
-
 type StatusFilter = '' | 'unused' | 'used' | 'expired'
 
 export function Redemptions() {
   const { showToast } = useToast()
   const { token } = useAuth()
+  const api = useMemo(() => createRedemptionsApi(createAuthClient(token ?? '')), [token])
 
   const [codes, setCodes] = useState<RedemptionCode[]>([])
   const [statistics, setStatistics] = useState<RedemptionStatistics | null>(null)
@@ -70,44 +65,32 @@ export function Redemptions() {
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<{ id: number; username: string } | null>(null)
 
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  }), [token])
-
   const fetchStatistics = useCallback(async () => {
     setStatsLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (startDate) params.append('start_date', startDate)
-      if (endDate) params.append('end_date', endDate)
-      const response = await fetch(`${apiUrl}/api/redemptions/statistics?${params.toString()}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) setStatistics(data.data)
-    } catch (error) {
-      console.error('Failed to fetch statistics:', error)
+      const { data: resp, error } = await api.statistics()
+      if (error) { console.error('Failed to fetch statistics:', error); return }
+      if (resp?.data) setStatistics(resp.data as RedemptionStatistics)
     } finally { setStatsLoading(false) }
-  }, [apiUrl, getAuthHeaders, startDate, endDate])
+  }, [api, startDate, endDate])
 
   const fetchCodes = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: page.toString(), page_size: pageSize.toString() })
-      if (nameFilter) params.append('name', nameFilter)
-      if (statusFilter) params.append('status', statusFilter)
-      if (startDate) params.append('start_date', startDate)
-      if (endDate) params.append('end_date', endDate)
-
-      const response = await fetch(`${apiUrl}/api/redemptions?${params.toString()}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        const result: PaginatedResponse = data.data
+      const { data: resp, error } = await api.list({
+        page,
+        page_size: pageSize,
+        ...(nameFilter ? { name: nameFilter } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(startDate ? { start_date: startDate } : {}),
+        ...(endDate ? { end_date: endDate } : {}),
+      })
+      if (error) { showToast('error', '获取兑换码失败'); return }
+      const result = resp?.data as PaginatedResponse<RedemptionCode> | undefined
+      if (result) {
         setCodes(result.items)
         setTotal(result.total)
         setTotalPages(result.total_pages)
-      } else {
-        showToast('error', data.error?.message || '获取兑换码失败')
       }
     } catch (error) {
       showToast('error', '网络错误，请重试')
@@ -115,7 +98,7 @@ export function Redemptions() {
     } finally {
       setLoading(false)
     }
-  }, [apiUrl, getAuthHeaders, page, pageSize, nameFilter, statusFilter, startDate, endDate, showToast])
+  }, [api, page, pageSize, nameFilter, statusFilter, startDate, endDate, showToast])
 
   useEffect(() => { fetchCodes() }, [fetchCodes])
   useEffect(() => { fetchStatistics() }, [fetchStatistics])
@@ -134,28 +117,24 @@ export function Redemptions() {
 
   const handleSelectOne = (id: number, checked: boolean) => {
     const newSelected = new Set(selectedIds)
-    checked ? newSelected.add(id) : newSelected.delete(id)
+    if (checked) { newSelected.add(id) } else { newSelected.delete(id) }
     setSelectedIds(newSelected)
   }
 
   const confirmDelete = async () => {
-    if (deleting) return // 防止重复点击
+    if (deleting) return
     setDeleting(true)
     try {
       if (deleteDialog.type === 'single' && deleteDialog.id) {
-        const response = await fetch(`${apiUrl}/api/redemptions/${deleteDialog.id}`, { method: 'DELETE', headers: getAuthHeaders() })
-        const data = await response.json()
-        if (data.success) { showToast('success', '删除成功'); fetchCodes(); fetchStatistics(); }
-        else showToast('error', data.error?.message || '删除失败')
+        const { data: delResp, error: delErr } = await api.deleteById(deleteDialog.id)
+        const delOk = !delErr && (delResp as { success?: boolean } | undefined)?.success !== false
+        if (delOk) { showToast('success', '删除成功'); fetchCodes(); fetchStatistics(); }
+        else showToast('error', (delResp as { message?: string } | undefined)?.message || '删除失败')
       } else if (deleteDialog.type === 'batch') {
-        const response = await fetch(`${apiUrl}/api/redemptions/batch`, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ ids: Array.from(selectedIds) }),
-        })
-        const data = await response.json()
-        if (data.success) { showToast('success', `成功删除 ${selectedIds.size} 个兑换码`); setSelectedIds(new Set()); fetchCodes(); fetchStatistics(); }
-        else showToast('error', data.error?.message || '删除失败')
+        const { data: batchResp, error: batchErr } = await api.batchDelete({ ids: Array.from(selectedIds) })
+        const batchOk = !batchErr && (batchResp as { success?: boolean } | undefined)?.success !== false
+        if (batchOk) { showToast('success', `成功删除 ${selectedIds.size} 个兑换码`); setSelectedIds(new Set()); fetchCodes(); fetchStatistics(); }
+        else showToast('error', (batchResp as { message?: string } | undefined)?.message || '删除失败')
       }
     } catch (error) {
       showToast('error', '网络错误，请重试')

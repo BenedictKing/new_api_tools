@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useToast } from './Toast'
 import { useAuth } from '../contexts/AuthContext'
+import { createAuthClient, createTokensApi } from '../api'
+import type { PaginatedResponse } from '../types/common'
 import { Key, Loader2, RefreshCw, Filter, Search, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -38,19 +40,12 @@ interface TokenStatistics {
   expired: number
 }
 
-interface PaginatedResponse {
-  items: TokenRecord[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-}
-
 type StatusFilter = '' | 'active' | 'disabled' | 'expired'
 
 export function Tokens() {
   const { showToast } = useToast()
   const { token } = useAuth()
+  const api = useMemo(() => createTokensApi(createAuthClient(token ?? '')), [token])
 
   const [tokens, setTokens] = useState<TokenRecord[]>([])
   const [statistics, setStatistics] = useState<TokenStatistics | null>(null)
@@ -66,45 +61,34 @@ export function Tokens() {
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<{ id: number; username: string } | null>(null)
 
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  }), [token])
-
   const fetchStatistics = useCallback(async () => {
     setStatsLoading(true)
     try {
-      const response = await fetch(`${apiUrl}/api/tokens/statistics`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) setStatistics(data.data)
-    } catch (error) {
-      console.error('Failed to fetch token statistics:', error)
+      const { data: resp, error } = await api.statistics()
+      if (error) { console.error('Failed to fetch token statistics:', error); return }
+      if (resp?.data) setStatistics(resp.data as TokenStatistics)
     } finally { setStatsLoading(false) }
-  }, [apiUrl, getAuthHeaders])
+  }, [api])
 
   const fetchTokens = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: page.toString(), page_size: pageSize.toString() })
-      if (statusFilter) params.append('status', statusFilter)
-      if (nameSearch) params.append('name', nameSearch)
-
-      const response = await fetch(`${apiUrl}/api/tokens?${params.toString()}`, { headers: getAuthHeaders() })
-      const data = await response.json()
-      if (data.success) {
-        const result: PaginatedResponse = data.data
-        setTokens(result.items || [])
-        setTotal(result.total)
-        setTotalPages(result.total_pages)
-      } else {
-        showToast('error', data.message || '获取令牌列表失败')
-      }
+      const { data: resp, error } = await api.list({
+        page,
+        page_size: pageSize,
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(nameSearch ? { name: nameSearch } : {}),
+      })
+      if (error) { showToast('error', '获取令牌列表失败'); return }
+      const result = resp?.data as PaginatedResponse<TokenRecord> | undefined
+      setTokens(result?.items || [])
+      setTotal(result?.total ?? 0)
+      setTotalPages(result?.total_pages ?? 1)
     } catch (error) {
       showToast('error', '网络错误，请重试')
       console.error('Failed to fetch tokens:', error)
     } finally { setLoading(false) }
-  }, [apiUrl, getAuthHeaders, page, pageSize, statusFilter, nameSearch, showToast])
+  }, [api, page, pageSize, statusFilter, nameSearch, showToast])
 
   useEffect(() => { fetchTokens() }, [fetchTokens])
   useEffect(() => { fetchStatistics() }, [fetchStatistics])

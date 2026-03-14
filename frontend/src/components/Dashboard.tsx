@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './Toast'
+import { createAuthClient, createDashboardApi } from '../api'
 import { TrendChart } from './TrendChart'
 import { Users, Key, Server, Box, Ticket, Zap, Crown, Loader2, RefreshCw, Activity, BarChart3, Clock, Database, Timer, ChevronDown, Hash, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card'
 import { Button } from './ui/button'
 import { cn } from '../lib/utils'
+import { UserAnalysisDialog } from './UserAnalysisDialog'
 
 type RefreshInterval = 0 | 30 | 60 | 120 | 300 // 秒，0表示关闭
 
@@ -46,9 +48,16 @@ interface DailyTrend {
   unique_users?: number
 }
 
+interface TopUser {
+  user_id: number
+  username: string
+  request_count: number
+  quota_used: number
+}
+
 interface AnalyticsSummary {
-  request_king: { user_id: number; username: string; request_count: number } | null
-  quota_king: { user_id: number; username: string; quota_used: number } | null
+  request_top: TopUser[]
+  quota_top: TopUser[]
 }
 
 interface SystemInfo {
@@ -81,6 +90,8 @@ type PeriodType = '24h' | '3d' | '7d' | '14d'
 export function Dashboard() {
   const { token } = useAuth()
   const { showToast } = useToast()
+  const api = useMemo(() => createDashboardApi(createAuthClient(token ?? '')), [token])
+  const requestTimeoutMs = 30_000
   const [overview, setOverview] = useState<SystemOverview | null>(null)
   const [usage, setUsage] = useState<UsageStatistics | null>(null)
   const [models, setModels] = useState<ModelUsage[]>([])
@@ -113,108 +124,67 @@ export function Dashboard() {
   const [refreshEstimate, setRefreshEstimate] = useState<RefreshEstimate | null>(null)
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false)
   const [refreshProgress, setRefreshProgress] = useState<string | null>(null)
+  const [selectedUser, setSelectedUser] = useState<{ id: number; username: string } | null>(null)
+  const [userAnalysisOpen, setUserAnalysisOpen] = useState(false)
 
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-  const requestTimeoutMs = 30_000
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  }), [token])
-
-  const fetchOverview = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
+  const fetchOverview = useCallback(async (_noCache = false, _signal?: AbortSignal): Promise<boolean> => {
     try {
-      const cacheParam = noCache ? '&no_cache=true' : ''
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/overview?period=${period}${cacheParam}`,
-        { headers: getAuthHeaders(), signal },
-      )
-      const data = await response.json()
-      if (data.success) setOverview(data.data)
+      const { data: resp } = await api.overview()
+      if (resp?.data) setOverview(resp.data as SystemOverview)
       return true
     } catch (error) { console.error('Failed to fetch overview:', error) }
     return false
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api])
 
-  const fetchUsage = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
+  const fetchUsage = useCallback(async (_noCache = false, signal?: AbortSignal): Promise<boolean> => {
     try {
-      const cacheParam = noCache ? '&no_cache=true' : ''
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/usage?period=${period}${cacheParam}`,
-        { headers: getAuthHeaders(), signal },
-      )
-      const data = await response.json()
-      if (data.success) setUsage(data.data)
+      const { data: resp } = await api.usage({ period, ...(signal ? { signal } as never : {}) })
+      if (resp?.data) setUsage(resp.data as UsageStatistics)
       return true
     } catch (error) { console.error('Failed to fetch usage:', error) }
     return false
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api, period])
 
-  const fetchModels = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
+  const fetchModels = useCallback(async (_noCache = false, signal?: AbortSignal): Promise<boolean> => {
     try {
-      const cacheParam = noCache ? '&no_cache=true' : ''
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/models?period=${period}&limit=8${cacheParam}`,
-        { headers: getAuthHeaders(), signal },
-      )
-      const data = await response.json()
-      if (data.success) setModels(data.data)
+      const { data: resp } = await api.models({ period, limit: 8, ...(signal ? { signal } as never : {}) })
+      if (resp?.data) setModels(resp.data as ModelUsage[])
       return true
     } catch (error) { console.error('Failed to fetch models:', error) }
     return false
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api, period])
 
-  const fetchTrends = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
+  const fetchTrends = useCallback(async (_noCache = false, signal?: AbortSignal): Promise<boolean> => {
     try {
-      const cacheParam = noCache ? '&no_cache=true' : ''
-      let response
+      let resp
       if (period === '24h') {
-        // 24小时使用小时级数据
-        response = await fetch(
-          `${apiUrl}/api/dashboard/trends/hourly?hours=24${cacheParam}`,
-          { headers: getAuthHeaders(), signal },
-        )
+        const { data } = await api.trendsHourly({ hours: 24, ...(signal ? { signal } as never : {}) })
+        resp = data
       } else {
         const days = period === '3d' ? 3 : period === '7d' ? 7 : 14
-        response = await fetch(
-          `${apiUrl}/api/dashboard/trends/daily?days=${days}${cacheParam}`,
-          { headers: getAuthHeaders(), signal },
-        )
+        const { data } = await api.trendsDaily({ days, ...(signal ? { signal } as never : {}) })
+        resp = data
       }
-      const data = await response.json()
-      if (data.success) setDailyTrends(data.data)
+      if (resp?.data) setDailyTrends(resp.data as DailyTrend[])
       return true
     } catch (error) { console.error('Failed to fetch trends:', error) }
     return false
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api, period])
 
-  const fetchAnalyticsSummary = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
+  const fetchAnalyticsSummary = useCallback(async (_noCache = false, _signal?: AbortSignal): Promise<boolean> => {
     try {
-      const cacheParam = noCache ? '&no_cache=true' : ''
-      // 并行请求请求榜首和土豪榜首，由后端排序，直接取第 1 条
-      const [reqRes, quotaRes] = await Promise.all([
-        fetch(
-          `${apiUrl}/api/dashboard/top-users?period=${period}&limit=1&order_by=requests${cacheParam}`,
-          { headers: getAuthHeaders(), signal },
-        ),
-        fetch(
-          `${apiUrl}/api/dashboard/top-users?period=${period}&limit=1&order_by=quota${cacheParam}`,
-          { headers: getAuthHeaders(), signal },
-        ),
+      const [reqResult, quotaResult] = await Promise.all([
+        api.topUsers({ period, limit: 10, order_by: 'requests' }),
+        api.topUsers({ period, limit: 10, order_by: 'quota' }),
       ])
-      const [reqData, quotaData] = await Promise.all([reqRes.json(), quotaRes.json()])
-
-      const requestKing = reqData.success && reqData.data?.length > 0
-        ? { user_id: reqData.data[0].user_id, username: reqData.data[0].username, request_count: reqData.data[0].request_count }
-        : null
-      const quotaKing = quotaData.success && quotaData.data?.length > 0
-        ? { user_id: quotaData.data[0].user_id, username: quotaData.data[0].username, quota_used: quotaData.data[0].quota_used }
-        : null
-
-      setAnalyticsSummary({ request_king: requestKing, quota_king: quotaKing })
+      setAnalyticsSummary({
+        request_top: reqResult.data?.success ? (reqResult.data.data as TopUser[] ?? []) : [],
+        quota_top: quotaResult.data?.success ? (quotaResult.data.data as TopUser[] ?? []) : [],
+      })
       return true
     } catch (error) { console.error('Failed to fetch analytics summary:', error) }
     return false
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api, period])
 
   const fetchAll = useCallback(async (noCache = false, signal?: AbortSignal): Promise<boolean> => {
     const results = await Promise.all([
@@ -241,34 +211,22 @@ export function Dashboard() {
   // 获取系统规模信息（仅首次加载）
   const fetchSystemInfo = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/system-info`,
-        { headers: getAuthHeaders() },
-      )
-      const data = await response.json()
-      if (data.success) {
-        setSystemInfo(data.data)
-      }
+      const { data: resp } = await api.systemInfo()
+      if (resp?.data) setSystemInfo(resp.data as SystemInfo)
     } catch (error) {
       console.error('Failed to fetch system info:', error)
     }
-  }, [apiUrl, getAuthHeaders])
+  }, [api])
 
   // 获取刷新预估信息
   const fetchRefreshEstimate = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${apiUrl}/api/dashboard/refresh-estimate?period=${period}`,
-        { headers: getAuthHeaders() },
-      )
-      const data = await response.json()
-      if (data.success) {
-        setRefreshEstimate(data.data)
-      }
+      const { data: resp } = await api.refreshEstimate()
+      if (resp?.data) setRefreshEstimate(resp.data as RefreshEstimate)
     } catch (error) {
       console.error('Failed to fetch refresh estimate:', error)
     }
-  }, [apiUrl, getAuthHeaders, period])
+  }, [api])
 
   // 首次加载时获取系统信息
   useEffect(() => {
@@ -781,29 +739,42 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Analytics Kings */}
+      {/* Analytics Top Lists */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <KingCard
-          title="请求之王"
+        <TopListCard
+          title="请求榜"
           subtitle={`${getPeriodLabel()}内请求数最多`}
           icon={Zap}
-          user={analyticsSummary?.request_king}
-          valueLabel="总请求数"
-          value={analyticsSummary?.request_king?.request_count?.toLocaleString('zh-CN') ?? '0'}
+          users={analyticsSummary?.request_top ?? []}
+          valueLabel="请求数"
+          getValue={(u) => u.request_count.toLocaleString('zh-CN')}
           gradient="from-blue-600 to-indigo-600"
           accentColor="text-blue-100"
+          onUserClick={(u) => { setSelectedUser({ id: u.user_id, username: u.username }); setUserAnalysisOpen(true) }}
         />
-        <KingCard
-          title="土豪榜首"
+        <TopListCard
+          title="土豪榜"
           subtitle={`${getPeriodLabel()}内消耗额度最多`}
           icon={Crown}
-          user={analyticsSummary?.quota_king}
-          valueLabel="总消耗额度"
-          value={analyticsSummary?.quota_king ? `$${(analyticsSummary.quota_king.quota_used / 500000).toFixed(2)}` : undefined}
+          users={analyticsSummary?.quota_top ?? []}
+          valueLabel="消耗额度"
+          getValue={(u) => `$${(u.quota_used / 500000).toFixed(2)}`}
           gradient="from-emerald-600 to-teal-600"
           accentColor="text-emerald-100"
+          onUserClick={(u) => { setSelectedUser({ id: u.user_id, username: u.username }); setUserAnalysisOpen(true) }}
         />
       </div>
+
+      {/* User Analysis Dialog */}
+      {selectedUser && (
+        <UserAnalysisDialog
+          open={userAnalysisOpen}
+          onOpenChange={setUserAnalysisOpen}
+          userId={selectedUser.id}
+          username={selectedUser.username}
+          source="ip_lookup"
+        />
+      )}
     </div>
   )
 }
@@ -889,18 +860,21 @@ function StatCard({ title, value, rawValue, subValue, icon: Icon, color, variant
   )
 }
 
-interface KingCardProps {
+interface TopListCardProps {
   title: string
   subtitle: string
   icon: React.ElementType
-  user: { user_id: number; username: string } | null | undefined
+  users: TopUser[]
   valueLabel: string
-  value: string | undefined
+  getValue: (u: TopUser) => string
   gradient: string
   accentColor: string
+  onUserClick?: (u: TopUser) => void
 }
 
-function KingCard({ title, subtitle, icon: Icon, user, valueLabel, value, gradient, accentColor }: KingCardProps) {
+const RANK_MEDALS = ['🥇', '🥈', '🥉']
+
+function TopListCard({ title, subtitle, icon: Icon, users, valueLabel, getValue, gradient, accentColor, onUserClick }: TopListCardProps) {
   return (
     <div className={`glass-card bg-gradient-to-br ${gradient} rounded-2xl shadow-lg p-6 text-white relative overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-white/20`}>
       {/* Background Pattern */}
@@ -908,7 +882,7 @@ function KingCard({ title, subtitle, icon: Icon, user, valueLabel, value, gradie
         <Icon className="w-32 h-32 rotate-12" />
       </div>
 
-      <div className="flex items-center justify-between relative z-10">
+      <div className="flex items-center justify-between relative z-10 mb-4">
         <div>
           <div className="flex items-center gap-2">
             <Icon className="w-5 h-5 opacity-90" />
@@ -916,31 +890,36 @@ function KingCard({ title, subtitle, icon: Icon, user, valueLabel, value, gradie
           </div>
           <p className={`text-sm mt-1 ${accentColor} opacity-90`}>{subtitle}</p>
         </div>
+        <span className={`text-xs ${accentColor} opacity-70`}>TOP {users.length || 10}</span>
       </div>
 
-      {user ? (
-        <div className="mt-6 relative z-10">
-          <div className="flex items-center bg-white/10 p-4 rounded-lg backdrop-blur-sm border border-white/10">
-            <div className="h-12 w-12 rounded-full bg-white text-blue-600 flex items-center justify-center text-xl font-bold shadow-sm">
-              {user.username.charAt(0).toUpperCase()}
-            </div>
-            <div className="ml-4">
-              <p className="text-xl font-bold">{user.username}</p>
-              <p className={`text-xs ${accentColor}`}>User ID: {user.user_id}</p>
-            </div>
+      <div className="relative z-10 space-y-2">
+        {users.length === 0 ? (
+          <div className="h-[200px] flex flex-col items-center justify-center bg-white/5 rounded-lg border border-white/10 backdrop-blur-sm">
+            <p className="text-white/60">暂无数据</p>
           </div>
-          <div className="mt-4 flex justify-between items-end">
-            <div>
-              <p className={`text-xs ${accentColor} mb-1`}>{valueLabel}</p>
-              <p className="text-3xl font-bold tracking-tight">{value}</p>
+        ) : (
+          users.map((u, idx) => (
+            <div key={u.user_id} className="flex items-center justify-between bg-white/10 px-3 py-2 rounded-lg backdrop-blur-sm border border-white/10">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-base w-6 text-center shrink-0">
+                  {idx < 3 ? RANK_MEDALS[idx] : <span className={`text-xs font-bold ${accentColor}`}>{idx + 1}</span>}
+                </span>
+                <button
+                  onClick={() => onUserClick?.(u)}
+                  className={`font-medium truncate hover:underline underline-offset-2 ${onUserClick ? 'cursor-pointer' : ''}`}
+                >
+                  {u.username}
+                </button>
+              </div>
+              <div className="text-right shrink-0 ml-2">
+                <p className="text-sm font-bold">{getValue(u)}</p>
+                <p className={`text-xs ${accentColor} opacity-70`}>{valueLabel}</p>
+              </div>
             </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-6 h-[108px] flex flex-col items-center justify-center bg-white/5 rounded-lg border border-white/10 backdrop-blur-sm relative z-10">
-          <p className="text-white/60">暂无数据</p>
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   )
 }
