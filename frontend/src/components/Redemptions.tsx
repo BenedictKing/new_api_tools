@@ -20,8 +20,8 @@ interface RedemptionCode {
   quota: number
   created_time: number
   redeemed_time: number
-  used_user_id: number
-  used_username: string
+  redeemed_by: number
+  redeemer_name: string
   expired_time: number
   status: 'unused' | 'used' | 'expired'
 }
@@ -388,20 +388,20 @@ export function Redemptions() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {code.used_user_id > 0 ? (
+                        {code.redeemed_by > 0 ? (
                           <div
                             className="flex items-center gap-2 px-2 py-1 rounded-full bg-muted/50 hover:bg-primary/10 hover:text-primary transition-all cursor-pointer border border-transparent hover:border-primary/20 w-fit"
                             onClick={() => {
-                              setSelectedUser({ id: code.used_user_id, username: code.used_username || `用户 #${code.used_user_id}` })
+                              setSelectedUser({ id: code.redeemed_by, username: code.redeemer_name || `用户 #${code.redeemed_by}` })
                               setAnalysisDialogOpen(true)
                             }}
                             title="查看用户分析"
                           >
                             <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 text-[10px] text-primary font-bold">
-                              {(code.used_username || '#')[0]?.toUpperCase()}
+                              {(code.redeemer_name || '#')[0]?.toUpperCase()}
                             </div>
                             <span className="font-medium text-sm whitespace-nowrap">
-                              {code.used_username || `用户 #${code.used_user_id}`}
+                              {code.redeemer_name || `用户 #${code.redeemed_by}`}
                             </span>
                           </div>
                         ) : (
