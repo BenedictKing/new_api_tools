@@ -9,24 +9,45 @@ import (
 
 // Manager 提供与 backend 兼容的数据库操作接口
 // 这是一个适配层，将 GORM 操作包装成类似 sqlx 的 API
+//
+// 通过 GetManager() 创建的实例使用惰性获取：DB 连接在首次使用时动态获取，
+// 因此可安全地在包级变量初始化阶段调用（此时 mainDB 可能尚未初始化）。
 type Manager struct {
 	DB   *gorm.DB
 	IsPG bool
+	lazy bool // 惰性模式：DB/IsPG 在使用时动态获取
 }
 
-// GetManager 返回主数据库的 Manager 实例
+// GetManager 返回主数据库的惰性 Manager 实例
+// 可安全地在包级变量初始化中调用，DB 连接在首次使用时动态获取
 func GetManager() *Manager {
-	isPG := GetDBEngine() == "postgres"
-	return &Manager{
-		DB:   GetMainDB(),
-		IsPG: isPG,
+	return &Manager{lazy: true}
+}
+
+// getDB 返回底层 *gorm.DB，惰性模式下动态获取最新的 mainDB
+func (m *Manager) getDB() *gorm.DB {
+	if m.lazy {
+		return GetMainDB()
 	}
+	return m.DB
+}
+
+// isPostgres 返回是否为 PostgreSQL，惰性模式下动态获取
+func (m *Manager) isPostgres() bool {
+	if m.lazy {
+		return GetDBEngine() == "postgres"
+	}
+	return m.IsPG
 }
 
 // Query 执行查询并返回 map 结果集
 func (m *Manager) Query(query string, args ...interface{}) ([]map[string]interface{}, error) {
+	db := m.getDB()
+	if db == nil {
+		return nil, fmt.Errorf("数据库连接未初始化")
+	}
 	var results []map[string]interface{}
-	rows, err := m.DB.Raw(query, args...).Rows()
+	rows, err := db.Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +101,11 @@ func (m *Manager) QueryOne(query string, args ...interface{}) (map[string]interf
 
 // Execute 执行非查询语句（INSERT, UPDATE, DELETE）
 func (m *Manager) Execute(query string, args ...interface{}) (int64, error) {
-	result := m.DB.Exec(query, args...)
+	db := m.getDB()
+	if db == nil {
+		return 0, fmt.Errorf("数据库连接未初始化")
+	}
+	result := db.Exec(query, args...)
 	if result.Error != nil {
 		return 0, result.Error
 	}
@@ -89,7 +114,7 @@ func (m *Manager) Execute(query string, args ...interface{}) (int64, error) {
 
 // RebindQuery 重新绑定查询占位符（GORM 自动处理，这里保持兼容）
 func (m *Manager) RebindQuery(query string) string {
-	if m.IsPG {
+	if m.isPostgres() {
 		// 将 ? 转换为 $1, $2, ...
 		count := 0
 		var result strings.Builder
@@ -108,10 +133,14 @@ func (m *Manager) RebindQuery(query string) string {
 
 // TableExists 检查表是否存在
 func (m *Manager) TableExists(tableName string) (bool, error) {
+	db := m.getDB()
+	if db == nil {
+		return false, fmt.Errorf("数据库连接未初始化")
+	}
 	var exists bool
 	var query string
 
-	if m.IsPG {
+	if m.isPostgres() {
 		query = `SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'public'
@@ -124,16 +153,20 @@ func (m *Manager) TableExists(tableName string) (bool, error) {
 			AND table_name = ?`
 	}
 
-	err := m.DB.Raw(query, tableName).Scan(&exists).Error
+	err := db.Raw(query, tableName).Scan(&exists).Error
 	return exists, err
 }
 
 // ColumnExists 检查列是否存在
 func (m *Manager) ColumnExists(tableName, columnName string) bool {
+	db := m.getDB()
+	if db == nil {
+		return false
+	}
 	var exists bool
 	var query string
 
-	if m.IsPG {
+	if m.isPostgres() {
 		query = `SELECT EXISTS (
 			SELECT FROM information_schema.columns
 			WHERE table_schema = 'public'
@@ -148,13 +181,13 @@ func (m *Manager) ColumnExists(tableName, columnName string) bool {
 			AND column_name = ?`
 	}
 
-	err := m.DB.Raw(query, tableName, columnName).Scan(&exists).Error
+	err := db.Raw(query, tableName, columnName).Scan(&exists).Error
 	return err == nil && exists
 }
 
 // Placeholder 返回数据库占位符（GORM 自动处理，保持兼容）
 func (m *Manager) Placeholder(index int) string {
-	if m.IsPG {
+	if m.isPostgres() {
 		return fmt.Sprintf("$%d", index)
 	}
 	return "?"
