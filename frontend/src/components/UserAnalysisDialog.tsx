@@ -41,6 +41,7 @@ export interface UserAnalysis {
         id: number; username: string; display_name?: string | null; email?: string | null
         status: number; group?: string | null; remark?: string | null
         in_whitelist?: boolean; linux_do_id?: string | null
+        quota?: number | null; used_quota?: number | null
     }
     summary: {
         total_requests: number; success_requests: number; failure_requests: number
@@ -436,6 +437,28 @@ export function UserAnalysisDialog({
                                         </CardContent>
                                     </Card>
                                 </div>
+
+                                {/* Balance Info */}
+                                {(analysis.user.quota != null || analysis.user.used_quota != null) && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Card className="bg-muted/20 border-none shadow-sm">
+                                            <CardContent className="p-4 text-center">
+                                                <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">剩余余额</div>
+                                                <div className="text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                                                    ${((analysis.user.quota ?? 0) / 500000).toFixed(4)}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                        <Card className="bg-muted/20 border-none shadow-sm">
+                                            <CardContent className="p-4 text-center">
+                                                <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">历史消耗</div>
+                                                <div className="text-2xl font-bold tabular-nums text-orange-600 dark:text-orange-400">
+                                                    ${((analysis.user.used_quota ?? 0) / 500000).toFixed(4)}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                )}
 
                                 {/* Models and IPs */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

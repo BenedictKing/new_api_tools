@@ -563,7 +563,7 @@ func (s *AIAutoBanService) GetWhitelist() map[string]interface{} {
 	items := make([]map[string]interface{}, 0)
 	if len(whitelist) > 0 {
 		// Batch query all whitelist users in one query
-		placeholders := buildPlaceholders(s.db.IsPG, len(whitelist), 1)
+		placeholders := buildPlaceholders(s.db.IsPostgres(), len(whitelist), 1)
 		args := make([]interface{}, len(whitelist))
 		for i, uid := range whitelist {
 			args[i] = uid

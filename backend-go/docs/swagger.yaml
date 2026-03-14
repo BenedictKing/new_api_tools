@@ -1,0 +1,3195 @@
+basePath: /api
+definitions:
+  handler.LoginRequest:
+    properties:
+      password:
+        type: string
+    required:
+    - password
+    type: object
+  handler.LoginResponse:
+    properties:
+      expires_at:
+        type: string
+      message:
+        type: string
+      success:
+        type: boolean
+      token:
+        type: string
+    type: object
+  handler.Response:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  service.GenerateConfig:
+    properties:
+      count:
+        type: integer
+      expire_date:
+        description: date 模式的日期 (YYYY-MM-DD)
+        type: string
+      expire_days:
+        description: days 模式的天数
+        type: integer
+      expire_mode:
+        description: '过期模式: never (永不) / days (N天后) / date (指定日期)'
+        type: string
+      expire_time:
+        description: date 模式的时间 (HH:MM:SS，可选)
+        type: string
+      name:
+        type: string
+      prefix:
+        type: string
+      quota:
+        type: integer
+      quota_max:
+        description: 随机模式最大值
+        type: integer
+      quota_min:
+        description: 随机模式最小值
+        type: integer
+      quota_type:
+        description: '额度模式: fixed (固定) / random (随机)'
+        type: string
+    type: object
+  service.StorageConfig:
+    properties:
+      auto_cleanup:
+        type: boolean
+      backup_enabled:
+        type: boolean
+      backup_path:
+        type: string
+      cache_enabled:
+        type: boolean
+      cache_max_size:
+        type: integer
+      cache_ttl:
+        type: integer
+      cleanup_interval:
+        type: integer
+      compress_old_logs:
+        type: boolean
+      last_updated:
+        type: string
+      log_retention_days:
+        type: integer
+    type: object
+host: localhost:8000
+info:
+  contact: {}
+  description: NewAPI Tools 增强管理中间件 API 文档
+  title: NewAPI Tools API
+  version: "1.0"
+paths:
+  /ai-ban/assess:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '评估参数 {user_id: int, window: string}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: AI 评估用户风险
+      tags:
+      - AI封禁
+  /ai-ban/audit-logs:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清空 AI 封禁审计日志
+      tags:
+      - AI封禁
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 状态过滤
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 AI 封禁审计日志
+      tags:
+      - AI封禁
+  /ai-ban/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 AI 自动封禁配置
+      tags:
+      - AI封禁
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 配置项键值对
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 更新 AI 自动封禁配置
+      tags:
+      - AI封禁
+  /ai-ban/models:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '模型列表 {models: [\'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 更新 AI 封禁可用模型列表
+      tags:
+      - AI封禁
+  /ai-ban/reset-api-health:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 重置 AI API 健康状态
+      tags:
+      - AI封禁
+  /ai-ban/scan:
+    post:
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - default: 100
+        description: 扫描数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 扫描可疑用户
+      tags:
+      - AI封禁
+  /ai-ban/suspicious-users:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取可疑用户列表
+      tags:
+      - AI封禁
+  /ai-ban/test-connection:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 测试 AI 服务连接
+      tags:
+      - AI封禁
+  /ai-ban/test-model:
+    post:
+      parameters:
+      - description: API Key
+        in: query
+        name: api_key
+        required: true
+        type: string
+      - description: Base URL
+        in: query
+        name: base_url
+        required: true
+        type: string
+      - description: 模型名称
+        in: query
+        name: model
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 测试 AI 模型连接
+      tags:
+      - AI封禁
+  /ai-ban/whitelist:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 AI 封禁白名单
+      tags:
+      - AI封禁
+  /ai-ban/whitelist/add:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '白名单参数 {user_id: int, reason: string}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 添加用户到白名单
+      tags:
+      - AI封禁
+  /ai-ban/whitelist/remove:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '移除参数 {user_id: int}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 从白名单移除用户
+      tags:
+      - AI封禁
+  /ai-ban/whitelist/search:
+    get:
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 搜索白名单用户
+      tags:
+      - AI封禁
+  /analytics/batch:
+    post:
+      parameters:
+      - default: 100
+        description: 最大迭代次数
+        in: query
+        name: max_iterations
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量处理日志（多轮迭代）
+      tags:
+      - 日志分析
+  /analytics/check-consistency:
+    post:
+      parameters:
+      - default: false
+        description: 是否自动重置
+        in: query
+        name: auto_reset
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 检查日志数据一致性
+      tags:
+      - 日志分析
+  /analytics/models:
+    get:
+      parameters:
+      - default: today
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      - default: 20
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取模型使用统计
+      tags:
+      - 日志分析
+  /analytics/process:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 处理待分析日志
+      tags:
+      - 日志分析
+  /analytics/reset:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 重置日志分析数据
+      tags:
+      - 日志分析
+  /analytics/state:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取日志分析状态
+      tags:
+      - 日志分析
+  /analytics/summary:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取日志分析完整摘要
+      tags:
+      - 日志分析
+  /analytics/sync-status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取日志同步状态
+      tags:
+      - 日志分析
+  /analytics/users/quota:
+    get:
+      parameters:
+      - default: today
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      - default: 20
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户额度消耗排行
+      tags:
+      - 日志分析
+  /analytics/users/requests:
+    get:
+      parameters:
+      - default: today
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      - default: 20
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户请求量排行
+      tags:
+      - 日志分析
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 登录请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.LoginResponse'
+      summary: 管理员登录
+      tags:
+      - 认证
+  /auth/logout:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 管理员登出
+      tags:
+      - 认证
+  /auto-group/batch-move:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '批量移动参数 {user_ids: [1,2,3], target_group: string}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 批量移动用户到指定分组
+      tags:
+      - 自动分组
+  /auto-group/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取自动分组配置
+      tags:
+      - 自动分组
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 配置项
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 保存自动分组配置
+      tags:
+      - 自动分组
+  /auto-group/groups:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取所有可用分组
+      tags:
+      - 自动分组
+  /auto-group/logs:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 操作类型 (assign/revert)
+        in: query
+        name: action
+        type: string
+      - description: 过滤用户 ID
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取自动分组操作日志
+      tags:
+      - 自动分组
+  /auto-group/preview:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取待分组用户预览
+      tags:
+      - 自动分组
+  /auto-group/revert:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '恢复参数 {log_id: int}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 恢复用户分组到变更前状态
+      tags:
+      - 自动分组
+  /auto-group/scan:
+    post:
+      parameters:
+      - default: true
+        description: 预演模式
+        in: query
+        name: dry_run
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 执行自动分组扫描
+      tags:
+      - 自动分组
+  /auto-group/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取自动分组统计信息
+      tags:
+      - 自动分组
+  /dashboard/cache/invalidate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 指定要清除的缓存 keys，空则清除全部
+        in: body
+        name: body
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清除仪表盘缓存
+      tags:
+      - 仪表盘
+  /dashboard/channels:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取渠道状态
+      tags:
+      - 仪表盘
+  /dashboard/ip-distribution:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 IP 地理分布
+      tags:
+      - 仪表盘
+  /dashboard/models:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      - default: 10
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取模型使用统计
+      tags:
+      - 仪表盘
+  /dashboard/overview:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取系统概览
+      tags:
+      - 仪表盘
+  /dashboard/refresh-estimate:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取缓存刷新时间估算
+      tags:
+      - 仪表盘
+  /dashboard/system-info:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取系统信息
+      tags:
+      - 仪表盘
+  /dashboard/top-users:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间周期
+        in: query
+        name: period
+        type: string
+      - default: 10
+        description: 返回数量 (1-100)
+        in: query
+        name: limit
+        type: integer
+      - default: requests
+        description: 排序字段 (requests/quota)
+        in: query
+        name: order_by
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户排行榜
+      tags:
+      - 仪表盘
+  /dashboard/trends/daily:
+    get:
+      parameters:
+      - default: 30
+        description: 天数
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取每日趋势
+      tags:
+      - 仪表盘
+  /dashboard/trends/hourly:
+    get:
+      parameters:
+      - default: 24
+        description: 小时数 (1-168)
+        in: query
+        name: hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取每小时趋势
+      tags:
+      - 仪表盘
+  /dashboard/usage:
+    get:
+      parameters:
+      - default: today
+        description: 时间周期 (today/7d/30d)
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取使用统计
+      tags:
+      - 仪表盘
+  /health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.Response'
+      summary: 健康检查
+      tags:
+      - 健康检查
+  /health/db:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            type: object
+      summary: 数据库健康检查
+      tags:
+      - 健康检查
+  /ip-monitoring/ensure-indexes:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 确保 IP 相关数据库索引存在
+      tags:
+      - IP监控
+  /ip-monitoring/geo/{ip}:
+    get:
+      parameters:
+      - description: IP 地址
+        in: path
+        name: ip
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 IP 地理信息
+      tags:
+      - IP监控
+  /ip-monitoring/geo/batch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 'IP 列表 {ips: [\'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 批量获取 IP 地理信息
+      tags:
+      - IP监控
+  /ip-monitoring/index-status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 IP 索引状态
+      tags:
+      - IP监控
+  /ip-monitoring/multi-ip-tokens:
+    get:
+      parameters:
+      - default: 5
+        description: 最小 IP 数
+        in: query
+        name: min_ips
+        type: integer
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取使用多个 IP 的令牌
+      tags:
+      - IP监控
+  /ip-monitoring/multi-ip-users:
+    get:
+      parameters:
+      - default: 10
+        description: 最小 IP 数
+        in: query
+        name: min_ips
+        type: integer
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取使用多个 IP 的用户
+      tags:
+      - IP监控
+  /ip-monitoring/shared-ips:
+    get:
+      parameters:
+      - default: 2
+        description: 最小令牌/用户数
+        in: query
+        name: min_tokens
+        type: integer
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取共享 IP 列表
+      tags:
+      - IP监控
+  /ip-monitoring/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取 IP 统计信息
+      tags:
+      - IP监控
+  /ip-monitoring/users/{user_id}/ips:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - default: 100
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户的 IP 访问列表
+      tags:
+      - IP监控
+  /linuxdo/lookup/{linux_do_id}:
+    get:
+      parameters:
+      - description: LinuxDo 用户 ID
+        in: path
+        name: linux_do_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询 LinuxDo 用户信息
+      tags:
+      - LinuxDo
+  /model-status/config/refresh:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取模型状态刷新间隔配置
+      tags:
+      - 模型状态
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '刷新间隔 {refresh_interval: 60}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新模型状态刷新间隔
+      tags:
+      - 模型状态
+  /model-status/config/selected:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取已选中模型及配置
+      tags:
+      - 模型状态
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '模型列表 {models: [\'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新已选中模型列表
+      tags:
+      - 模型状态
+  /model-status/config/theme:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取模型状态页主题配置
+      tags:
+      - 模型状态
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '主题配置 {theme: \'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新模型状态页主题
+      tags:
+      - 模型状态
+  /model-status/config/window:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取当前时间窗口配置
+      tags:
+      - 模型状态
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '时间窗口 {time_window: \'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新时间窗口配置
+      tags:
+      - 模型状态
+  /model-status/embed/config/selected:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 获取已选中模型及配置'
+      tags:
+      - 模型状态(公开)
+  /model-status/embed/models:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 获取可用模型列表'
+      tags:
+      - 模型状态(公开)
+  /model-status/embed/status:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 获取所有模型状态'
+      tags:
+      - 模型状态(公开)
+  /model-status/embed/status/{model_name}:
+    get:
+      parameters:
+      - description: 模型名称
+        in: path
+        name: model_name
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 获取单个模型状态'
+      tags:
+      - 模型状态(公开)
+  /model-status/embed/status/batch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - description: 模型名称列表
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 批量获取模型状态'
+      tags:
+      - 模型状态(公开)
+  /model-status/embed/windows:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: '[公开] 获取可用时间窗口'
+      tags:
+      - 模型状态(公开)
+  /model-status/models:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取可用模型列表
+      tags:
+      - 模型状态
+  /model-status/status:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间窗口 (1h/6h/12h/24h)
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取所有模型状态
+      tags:
+      - 模型状态
+  /model-status/status/{model_name}:
+    get:
+      parameters:
+      - description: 模型名称
+        in: path
+        name: model_name
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口 (1h/6h/12h/24h)
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个模型状态
+      tags:
+      - 模型状态
+  /model-status/status/batch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - default: 24h
+        description: 时间窗口 (1h/6h/12h/24h)
+        in: query
+        name: window
+        type: string
+      - description: '模型名称列表 {models: [\'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量获取模型状态
+      tags:
+      - 模型状态
+  /model-status/windows:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取所有可用时间窗口
+      tags:
+      - 模型状态
+  /redemptions:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 状态过滤
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取兑换码列表
+      tags:
+      - 兑换码
+  /redemptions/{id}:
+    delete:
+      parameters:
+      - description: 兑换码 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 删除兑换码
+      tags:
+      - 兑换码
+  /redemptions/batch:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: '兑换码 ID 列表 {ids: [1,2,3]}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 批量删除兑换码
+      tags:
+      - 兑换码
+  /redemptions/generate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 生成配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/service.GenerateConfig'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 批量生成兑换码
+      tags:
+      - 兑换码
+  /redemptions/statistics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取兑换码统计
+      tags:
+      - 兑换码
+  /risk/affiliated-accounts:
+    get:
+      parameters:
+      - default: 3
+        description: 最小邀请数
+        in: query
+        name: min_invited
+        type: integer
+      - default: true
+        description: 包含活跃度数据
+        in: query
+        name: include_activity
+        type: boolean
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取关联账户（邀请关系）
+      tags:
+      - 风控监控
+  /risk/ban-records:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 50
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 操作类型 (ban/unban)
+        in: query
+        name: action
+        type: string
+      - description: 过滤用户 ID
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取封禁记录
+      tags:
+      - 风控监控
+  /risk/leaderboards:
+    get:
+      parameters:
+      - default: 1h,3h,6h,12h,24h
+        description: 时间窗口列表，逗号分隔
+        in: query
+        name: windows
+        type: string
+      - default: 10
+        description: 每个窗口返回数量
+        in: query
+        name: limit
+        type: integer
+      - default: requests
+        description: 排序字段 (requests/quota/failure_rate)
+        in: query
+        name: sort_by
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取风控排行榜
+      tags:
+      - 风控监控
+  /risk/same-ip-registrations:
+    get:
+      parameters:
+      - default: 7d
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - default: 3
+        description: 最小用户数
+        in: query
+        name: min_users
+        type: integer
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取同 IP 注册用户
+      tags:
+      - 风控监控
+  /risk/token-rotation:
+    get:
+      parameters:
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - default: 5
+        description: 最小令牌数
+        in: query
+        name: min_tokens
+        type: integer
+      - default: 10
+        description: 每令牌最大请求数
+        in: query
+        name: max_requests_per_token
+        type: integer
+      - default: 50
+        description: 返回数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取令牌轮换异常用户
+      tags:
+      - 风控监控
+  /risk/users/{user_id}/analysis:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户风险分析
+      tags:
+      - 风控监控
+  /status-page/{slug}:
+    get:
+      parameters:
+      - description: 状态页标识
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: 获取状态页配置
+      tags:
+      - 状态页
+  /status-page/{slug}/badge:
+    get:
+      parameters:
+      - description: 状态页标识
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      - description: 徽章标签
+        in: query
+        name: label
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: 获取状态页徽章
+      tags:
+      - 状态页
+  /status-page/{slug}/summary:
+    get:
+      parameters:
+      - description: 状态页标识
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: 获取状态页摘要
+      tags:
+      - 状态页
+  /status-page/heartbeat/{slug}:
+    get:
+      parameters:
+      - description: 状态页标识
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 24h
+        description: 时间窗口
+        in: query
+        name: window
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: 获取状态页心跳数据
+      tags:
+      - 状态页
+  /storage/cache:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清空所有缓存
+      tags:
+      - 存储管理
+  /storage/cache/cleanup:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清理过期缓存
+      tags:
+      - 存储管理
+  /storage/cache/cleanup-expired:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清理过期缓存条目
+      tags:
+      - 存储管理
+  /storage/cache/dashboard:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 清空仪表板缓存
+      tags:
+      - 存储管理
+  /storage/cache/info:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取缓存详细信息
+      tags:
+      - 存储管理
+  /storage/cache/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取缓存统计信息
+      tags:
+      - 存储管理
+  /storage/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取存储配置列表
+      tags:
+      - 存储管理
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 存储配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/service.StorageConfig'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 更新存储配置
+      tags:
+      - 存储管理
+  /storage/config/{key}:
+    delete:
+      parameters:
+      - description: 配置键
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 删除存储配置项
+      tags:
+      - 存储管理
+    get:
+      parameters:
+      - description: 配置键
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个存储配置项
+      tags:
+      - 存储管理
+  /storage/info:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取存储空间信息
+      tags:
+      - 存储管理
+  /system/indexes:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取数据库索引列表
+      tags:
+      - 系统管理
+  /system/indexes/ensure:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 确保数据库索引存在
+      tags:
+      - 系统管理
+  /system/scale:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取系统规模检测结果
+      tags:
+      - 系统管理
+  /system/scale/refresh:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 强制刷新系统规模检测
+      tags:
+      - 系统管理
+  /system/warmup-status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取系统预热状态
+      tags:
+      - 系统管理
+  /tokens:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 状态过滤 (active/disabled/expired)
+        in: query
+        name: status
+        type: string
+      - description: 名称过滤
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取令牌列表
+      tags:
+      - 令牌管理
+  /tokens/statistics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取令牌统计信息
+      tags:
+      - 令牌管理
+  /top-ups:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 开始日期
+        in: query
+        name: start_date
+        type: string
+      - description: 结束日期
+        in: query
+        name: end_date
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取充值记录列表
+      tags:
+      - 充值记录
+  /top-ups/{id}:
+    get:
+      parameters:
+      - description: 充值记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 根据 ID 获取充值记录
+      tags:
+      - 充值记录
+  /top-ups/{id}/refund:
+    post:
+      parameters:
+      - description: 充值记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 充值退款
+      tags:
+      - 充值记录
+  /top-ups/payment-methods:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取支付方式统计
+      tags:
+      - 充值记录
+  /top-ups/statistics:
+    get:
+      parameters:
+      - description: 开始日期
+        in: query
+        name: start_date
+        type: string
+      - description: 结束日期
+        in: query
+        name: end_date
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取充值统计
+      tags:
+      - 充值记录
+  /users:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 活跃度过滤
+        in: query
+        name: activity
+        type: string
+      - description: 分组过滤
+        in: query
+        name: group
+        type: string
+      - description: 来源过滤
+        in: query
+        name: source
+        type: string
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      - description: 排序字段
+        in: query
+        name: order_by
+        type: string
+      - description: 排序方向 (asc/desc)
+        in: query
+        name: order_dir
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户列表
+      tags:
+      - 用户管理
+  /users/{user_id}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 删除用户
+      tags:
+      - 用户管理
+  /users/{user_id}/ban:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: '封禁参数 {reason: string, disable_tokens: bool}'
+        in: body
+        name: body
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 封禁用户
+      tags:
+      - 用户管理
+  /users/{user_id}/invited:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户的邀请列表
+      tags:
+      - 用户管理
+  /users/{user_id}/unban:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: '解封参数 {enable_tokens: bool}'
+        in: body
+        name: body
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 解封用户
+      tags:
+      - 用户管理
+  /users/banned:
+    get:
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 50
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取封禁用户列表
+      tags:
+      - 用户管理
+  /users/batch-delete:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '批量删除参数 {activity_level: string, dry_run: bool, hard_delete:
+          bool}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 批量删除用户
+      tags:
+      - 用户管理
+  /users/soft-deleted/count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取已软删除用户数量
+      tags:
+      - 用户管理
+  /users/soft-deleted/purge:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '清理参数 {dry_run: bool}'
+        in: body
+        name: body
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 彻底清理软删除用户
+      tags:
+      - 用户管理
+  /users/stats:
+    get:
+      parameters:
+      - default: false
+        description: 快速模式
+        in: query
+        name: quick
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户活跃度统计
+      tags:
+      - 用户管理
+  /users/tokens/{token_id}/disable:
+    post:
+      parameters:
+      - description: 令牌 ID
+        in: path
+        name: token_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 禁用用户令牌
+      tags:
+      - 用户管理
+securityDefinitions:
+  BearerAuth:
+    description: 输入格式：Bearer {token}
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

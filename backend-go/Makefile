@@ -16,7 +16,7 @@ GREEN=\033[0;32m
 YELLOW=\033[0;33m
 NC=\033[0m # No Color
 
-.PHONY: help dev build run clean install-air test copy-frontend
+.PHONY: help dev build run clean install-air test copy-frontend swagger install-swag
 
 # 默认目标 - 显示帮助
 help:
@@ -139,6 +139,21 @@ deps:
 deps-tree:
 	@echo "$(GREEN)🌳 依赖树:$(NC)"
 	@go mod graph
+
+# 安装 swag 工具
+install-swag:
+	@echo "$(GREEN)安装 swag 工具...$(NC)"
+	@go install github.com/swaggo/swag/cmd/swag@latest
+	@echo "$(GREEN)✅ swag 安装完成$(NC)"
+
+# 生成 Swagger 文档
+swagger:
+	@echo "$(GREEN)生成 Swagger 文档...$(NC)"
+	@if ! command -v swag &> /dev/null; then \
+		$(MAKE) install-swag; \
+	fi
+	@swag init -g main.go -o docs --parseInternal
+	@echo "$(GREEN)✅ Swagger 文档已生成: docs/$(NC)"
 
 # 安装开发工具
 install-tools: install-air

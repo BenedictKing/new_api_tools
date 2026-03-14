@@ -27,11 +27,25 @@ func RegisterAutoGroupRoutes(r *gin.RouterGroup) {
 }
 
 // GetAutoGroupConfig 获取自动分组配置
+// @Summary     获取自动分组配置
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /auto-group/config [get]
 func GetAutoGroupConfig(c *gin.Context) {
 	Success(c, autoGroupService.GetConfig())
 }
 
 // SaveAutoGroupConfig 保存自动分组配置
+// @Summary     保存自动分组配置
+// @Tags        自动分组
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "配置项"
+// @Success     200   {object}  Response{data=object}
+// @Router      /auto-group/config [post]
 func SaveAutoGroupConfig(c *gin.Context) {
 	var req map[string]interface{}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,6 +93,12 @@ func SaveAutoGroupConfig(c *gin.Context) {
 }
 
 // GetAutoGroupAvailableGroups 获取可用分组
+// @Summary     获取所有可用分组
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /auto-group/groups [get]
 func GetAutoGroupAvailableGroups(c *gin.Context) {
 	groups := autoGroupService.GetAvailableGroups()
 	Success(c, gin.H{
@@ -88,11 +108,25 @@ func GetAutoGroupAvailableGroups(c *gin.Context) {
 }
 
 // GetAutoGroupStats 获取自动分组统计
+// @Summary     获取自动分组统计信息
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /auto-group/stats [get]
 func GetAutoGroupStats(c *gin.Context) {
 	Success(c, autoGroupService.GetStats())
 }
 
 // GetAutoGroupPreview 获取待分组用户预览
+// @Summary     获取待分组用户预览
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int  false  "页码"      default(1)
+// @Param       page_size  query     int  false  "每页数量"  default(20)
+// @Success     200        {object}  Response{data=object}
+// @Router      /auto-group/preview [get]
 func GetAutoGroupPreview(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -107,6 +141,16 @@ func GetAutoGroupPreview(c *gin.Context) {
 }
 
 // GetAutoGroupLogs 获取自动分组日志
+// @Summary     获取自动分组操作日志
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"                       default(1)
+// @Param       page_size  query     int     false  "每页数量"                   default(20)
+// @Param       action     query     string  false  "操作类型 (assign/revert)"
+// @Param       user_id    query     int     false  "过滤用户 ID"
+// @Success     200        {object}  Response{data=object}
+// @Router      /auto-group/logs [get]
 func GetAutoGroupLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -137,6 +181,13 @@ func GetAutoGroupLogs(c *gin.Context) {
 }
 
 // RunAutoGroupScan 执行自动分组扫描
+// @Summary     执行自动分组扫描
+// @Tags        自动分组
+// @Produce     json
+// @Security    BearerAuth
+// @Param       dry_run  query     bool  false  "预演模式"  default(true)
+// @Success     200      {object}  Response{data=object}
+// @Router      /auto-group/scan [post]
 func RunAutoGroupScan(c *gin.Context) {
 	dryRun, err := strconv.ParseBool(c.DefaultQuery("dry_run", "true"))
 	if err != nil {
@@ -168,6 +219,14 @@ func RunAutoGroupScan(c *gin.Context) {
 }
 
 // RevertAutoGroupUser 恢复用户分组
+// @Summary     恢复用户分组到变更前状态
+// @Tags        自动分组
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "恢复参数 {log_id: int}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /auto-group/revert [post]
 func RevertAutoGroupUser(c *gin.Context) {
 	var req struct {
 		LogID int `json:"log_id"`
@@ -192,6 +251,14 @@ func RevertAutoGroupUser(c *gin.Context) {
 }
 
 // BatchMoveAutoGroupUsers 批量移动用户分组
+// @Summary     批量移动用户到指定分组
+// @Tags        自动分组
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "批量移动参数 {user_ids: [1,2,3], target_group: string}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /auto-group/batch-move [post]
 func BatchMoveAutoGroupUsers(c *gin.Context) {
 	var req struct {
 		UserIDs     []int64 `json:"user_ids"`

@@ -35,7 +35,7 @@ func NewIPMonitoringService() *IPMonitoringService {
 func (s *IPMonitoringService) GetIPStats() (map[string]interface{}, error) {
 	// Query total users and those with IP recording enabled
 	var userSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		userSQL = `
 			SELECT
 				COUNT(*) as total_users,
@@ -150,7 +150,7 @@ func (s *IPMonitoringService) GetSharedIPs(window string, minTokens, limit int) 
 		}
 
 		if len(ips) > 0 {
-			placeholders := buildPlaceholders(s.db.IsPG, len(ips), 2) // start at $2 for PG
+			placeholders := buildPlaceholders(s.db.IsPostgres(), len(ips), 2) // start at $2 for PG
 			args := []interface{}{startTime}
 			args = append(args, ips...)
 
@@ -249,7 +249,7 @@ func (s *IPMonitoringService) GetMultiIPTokens(window string, minIPs, limit int)
 			tokenIDs = append(tokenIDs, toInt64(row["token_id"]))
 		}
 
-		placeholders := buildPlaceholders(s.db.IsPG, len(tokenIDs), 2)
+		placeholders := buildPlaceholders(s.db.IsPostgres(), len(tokenIDs), 2)
 		args := []interface{}{startTime}
 		args = append(args, tokenIDs...)
 
@@ -341,7 +341,7 @@ func (s *IPMonitoringService) GetMultiIPUsers(window string, minIPs, limit int) 
 			userIDs = append(userIDs, toInt64(row["user_id"]))
 		}
 
-		placeholders := buildPlaceholders(s.db.IsPG, len(userIDs), 2)
+		placeholders := buildPlaceholders(s.db.IsPostgres(), len(userIDs), 2)
 		args := []interface{}{startTime}
 		args = append(args, userIDs...)
 
@@ -482,7 +482,7 @@ func (s *IPMonitoringService) GetUserIPs(userID int64, window string) (map[strin
 // EnableAllIPRecording enables IP recording for all users by updating the setting JSON field
 func (s *IPMonitoringService) EnableAllIPRecording() (map[string]interface{}, error) {
 	var updateSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		updateSQL = `
 			UPDATE users SET setting =
 				CASE

@@ -21,6 +21,16 @@ func RegisterTokenRoutes(r *gin.RouterGroup) {
 }
 
 // GetTokens 获取令牌列表
+// @Summary     获取令牌列表
+// @Tags        令牌管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"                              default(1)
+// @Param       page_size  query     int     false  "每页数量"                          default(20)
+// @Param       status     query     string  false  "状态过滤 (active/disabled/expired)"
+// @Param       name       query     string  false  "名称过滤"
+// @Success     200        {object}  Response{data=object}
+// @Router      /tokens [get]
 func GetTokens(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -50,6 +60,12 @@ func GetTokens(c *gin.Context) {
 }
 
 // GetTokenStatistics 获取令牌统计
+// @Summary     获取令牌统计信息
+// @Tags        令牌管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /tokens/statistics [get]
 func GetTokenStatistics(c *gin.Context) {
 	data, err := tokenService.GetTokenStatistics()
 	if err != nil {

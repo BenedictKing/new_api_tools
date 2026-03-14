@@ -90,12 +90,26 @@ func intInSlice(v int, list []int) bool {
 // ==================== AI Ban Handlers ====================
 
 // GetAIBanConfigHandler 获取 AI 封禁配置
+// @Summary     获取 AI 自动封禁配置
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/config [get]
 func GetAIBanConfigHandler(c *gin.Context) {
 	data := aiBanService.GetConfig()
 	Success(c, data)
 }
 
 // UpdateAIBanConfigHandler 更新 AI 封禁配置
+// @Summary     更新 AI 自动封禁配置
+// @Tags        AI封禁
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "配置项键值对"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ai-ban/config [post]
 func UpdateAIBanConfigHandler(c *gin.Context) {
 	var config map[string]interface{}
 	if err := c.ShouldBindJSON(&config); err != nil {
@@ -113,6 +127,15 @@ func UpdateAIBanConfigHandler(c *gin.Context) {
 }
 
 // TestAIModelHandler 测试 AI 模型
+// @Summary     测试 AI 模型连接
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Param       api_key   query     string  true  "API Key"
+// @Param       base_url  query     string  true  "Base URL"
+// @Param       model     query     string  true  "模型名称"
+// @Success     200       {object}  Response{data=object}
+// @Router      /ai-ban/test-model [post]
 func TestAIModelHandler(c *gin.Context) {
 	// TestModel 需要参数
 	apiKey := c.Query("api_key")
@@ -129,6 +152,14 @@ func TestAIModelHandler(c *gin.Context) {
 }
 
 // GetSuspiciousUsersHandler 获取可疑用户
+// @Summary     获取可疑用户列表
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window  query     string  false  "时间窗口"  default(24h)
+// @Param       limit   query     int     false  "返回数量"  default(50)
+// @Success     200     {object}  Response{data=object}
+// @Router      /ai-ban/suspicious-users [get]
 func GetSuspiciousUsersHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", "24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
@@ -144,6 +175,14 @@ func GetSuspiciousUsersHandler(c *gin.Context) {
 }
 
 // AssessUserRiskHandler 评估用户风险
+// @Summary     AI 评估用户风险
+// @Tags        AI封禁
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "评估参数 {user_id: int, window: string}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ai-ban/assess [post]
 func AssessUserRiskHandler(c *gin.Context) {
 	var req struct {
 		UserID int    `json:"user_id"`
@@ -174,6 +213,14 @@ func AssessUserRiskHandler(c *gin.Context) {
 }
 
 // ScanUsersHandler 扫描用户
+// @Summary     扫描可疑用户
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window  query     string  false  "时间窗口"  default(24h)
+// @Param       limit   query     int     false  "扫描数量"  default(100)
+// @Success     200     {object}  Response{data=object}
+// @Router      /ai-ban/scan [post]
 func ScanUsersHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", "24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
@@ -189,12 +236,26 @@ func ScanUsersHandler(c *gin.Context) {
 }
 
 // GetWhitelistHandler 获取白名单
+// @Summary     获取 AI 封禁白名单
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/whitelist [get]
 func GetWhitelistHandler(c *gin.Context) {
 	data := aiBanService.GetWhitelist()
 	Success(c, data)
 }
 
 // AddToWhitelistHandler 添加到白名单
+// @Summary     添加用户到白名单
+// @Tags        AI封禁
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "白名单参数 {user_id: int, reason: string}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ai-ban/whitelist/add [post]
 func AddToWhitelistHandler(c *gin.Context) {
 	var req struct {
 		UserID int    `json:"user_id"`
@@ -216,6 +277,14 @@ func AddToWhitelistHandler(c *gin.Context) {
 }
 
 // RemoveFromWhitelistHandler 从白名单移除
+// @Summary     从白名单移除用户
+// @Tags        AI封禁
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "移除参数 {user_id: int}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ai-ban/whitelist/remove [post]
 func RemoveFromWhitelistHandler(c *gin.Context) {
 	var req struct {
 		UserID int `json:"user_id"`
@@ -236,6 +305,13 @@ func RemoveFromWhitelistHandler(c *gin.Context) {
 }
 
 // SearchWhitelistHandler 搜索白名单
+// @Summary     搜索白名单用户
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Param       q  query     string  false  "搜索关键词"
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/whitelist/search [get]
 func SearchWhitelistHandler(c *gin.Context) {
 	// 支持 q 和 keyword 两种参数名，优先使用 q（与前端一致）
 	keyword := c.Query("q")
@@ -251,6 +327,15 @@ func SearchWhitelistHandler(c *gin.Context) {
 }
 
 // GetAuditLogsHandler 获取审计日志
+// @Summary     获取 AI 封禁审计日志
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"      default(1)
+// @Param       page_size  query     int     false  "每页数量"  default(20)
+// @Param       status     query     string  false  "状态过滤"
+// @Success     200        {object}  Response{data=object}
+// @Router      /ai-ban/audit-logs [get]
 func GetAuditLogsHandler(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -260,6 +345,12 @@ func GetAuditLogsHandler(c *gin.Context) {
 }
 
 // DeleteAuditLogsHandler 删除审计日志
+// @Summary     清空 AI 封禁审计日志
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/audit-logs [delete]
 func DeleteAuditLogsHandler(c *gin.Context) {
 	data := aiBanService.ClearAuditLogs()
 	if errMsg, ok := data["error"]; ok {
@@ -270,6 +361,12 @@ func DeleteAuditLogsHandler(c *gin.Context) {
 }
 
 // TestConnectionHandler 测试 AI 连接
+// @Summary     测试 AI 服务连接
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/test-connection [post]
 func TestConnectionHandler(c *gin.Context) {
 	data := aiBanService.TestConnection()
 	if errMsg, ok := data["error"]; ok {
@@ -280,6 +377,12 @@ func TestConnectionHandler(c *gin.Context) {
 }
 
 // ResetAPIHealthHandler 重置 API 健康状态
+// @Summary     重置 AI API 健康状态
+// @Tags        AI封禁
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ai-ban/reset-api-health [post]
 func ResetAPIHealthHandler(c *gin.Context) {
 	data := aiBanService.ResetAPIHealth()
 	if errMsg, ok := data["error"]; ok {
@@ -290,6 +393,14 @@ func ResetAPIHealthHandler(c *gin.Context) {
 }
 
 // UpdateAIModelsHandler 更新 AI 模型列表
+// @Summary     更新 AI 封禁可用模型列表
+// @Tags        AI封禁
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "模型列表 {models: [\"gpt-4\", ...]}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ai-ban/models [post]
 func UpdateAIModelsHandler(c *gin.Context) {
 	var req struct {
 		Models []string `json:"models"`
@@ -304,6 +415,12 @@ func UpdateAIModelsHandler(c *gin.Context) {
 // ==================== Analytics Handlers ====================
 
 // GetAnalyticsStateHandler 获取分析状态
+// @Summary     获取日志分析状态
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /analytics/state [get]
 func GetAnalyticsStateHandler(c *gin.Context) {
 	data, err := analyticsService.GetState()
 	if err != nil {
@@ -316,6 +433,12 @@ func GetAnalyticsStateHandler(c *gin.Context) {
 }
 
 // ProcessLogsHandler 处理日志
+// @Summary     处理待分析日志
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /analytics/process [post]
 func ProcessLogsHandler(c *gin.Context) {
 	processed, lastLogID, err := analyticsService.ProcessLegacy()
 	if err != nil {
@@ -343,6 +466,14 @@ func ProcessLogsHandler(c *gin.Context) {
 }
 
 // GetUserRequestRankingHandler 获取用户请求排行
+// @Summary     获取用户请求量排行
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期"  default(today)
+// @Param       limit   query     int     false  "返回数量"  default(20)
+// @Success     200     {object}  Response{data=object}
+// @Router      /analytics/users/requests [get]
 func GetUserRequestRankingHandler(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
@@ -358,6 +489,14 @@ func GetUserRequestRankingHandler(c *gin.Context) {
 }
 
 // GetUserQuotaRankingHandler 获取用户额度排行
+// @Summary     获取用户额度消耗排行
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期"  default(today)
+// @Param       limit   query     int     false  "返回数量"  default(20)
+// @Success     200     {object}  Response{data=object}
+// @Router      /analytics/users/quota [get]
 func GetUserQuotaRankingHandler(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
@@ -373,6 +512,14 @@ func GetUserQuotaRankingHandler(c *gin.Context) {
 }
 
 // GetModelStatsHandler 获取模型统计
+// @Summary     获取模型使用统计
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期"  default(today)
+// @Param       limit   query     int     false  "返回数量"  default(20)
+// @Success     200     {object}  Response{data=object}
+// @Router      /analytics/models [get]
 func GetModelStatsHandler(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
@@ -388,6 +535,12 @@ func GetModelStatsHandler(c *gin.Context) {
 }
 
 // GetAnalyticsSummaryHandler 获取分析摘要
+// @Summary     获取日志分析完整摘要
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /analytics/summary [get]
 func GetAnalyticsSummaryHandler(c *gin.Context) {
 	// 使用 GetFullSummary 返回前端期望的完整数据结构
 	data, err := analyticsService.GetFullSummary()
@@ -401,6 +554,12 @@ func GetAnalyticsSummaryHandler(c *gin.Context) {
 }
 
 // ResetAnalyticsHandler 重置分析
+// @Summary     重置日志分析数据
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /analytics/reset [post]
 func ResetAnalyticsHandler(c *gin.Context) {
 	if err := analyticsService.ResetLegacy(); err != nil {
 		logger.Error("重置分析失败", zap.Error(err))
@@ -414,6 +573,12 @@ func ResetAnalyticsHandler(c *gin.Context) {
 // ==================== Model Status Handlers ====================
 
 // GetAvailableModelsHandler 获取可用模型
+// @Summary     获取可用模型列表
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/models [get]
 func GetAvailableModelsHandler(c *gin.Context) {
 	data, err := modelStatusService.GetAvailableModels()
 	if err != nil {
@@ -425,6 +590,14 @@ func GetAvailableModelsHandler(c *gin.Context) {
 }
 
 // GetModelStatusHandler 获取模型状态
+// @Summary     获取单个模型状态
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Param       model_name  path      string  true   "模型名称"
+// @Param       window      query     string  false  "时间窗口 (1h/6h/12h/24h)"  default(24h)
+// @Success     200         {object}  object
+// @Router      /model-status/status/{model_name} [get]
 func GetModelStatusHandler(c *gin.Context) {
 	modelName := c.Param("model_name")
 	if modelName == "" {
@@ -462,6 +635,15 @@ func GetModelStatusHandler(c *gin.Context) {
 }
 
 // BatchGetModelStatusHandler 批量获取模型状态
+// @Summary     批量获取模型状态
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window  query     string  false  "时间窗口 (1h/6h/12h/24h)"  default(24h)
+// @Param       body    body      object  true   "模型名称列表 {models: [\"gpt-4\", ...]} 或直接数组"
+// @Success     200     {object}  object
+// @Router      /model-status/status/batch [post]
 func BatchGetModelStatusHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", defaultModelStatusTimeWindow)
 	if !stringInSlice(window, modelStatusAvailableTimeWindows) {
@@ -506,6 +688,12 @@ func BatchGetModelStatusHandler(c *gin.Context) {
 }
 
 // GetSelectedModelsHandler 获取选中的模型
+// @Summary     获取已选中模型及配置
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/config/selected [get]
 func GetSelectedModelsHandler(c *gin.Context) {
 	mgr := appcache.GetCacheManager()
 	var selected []string
@@ -546,6 +734,14 @@ func GetSelectedModelsHandler(c *gin.Context) {
 }
 
 // UpdateSelectedModelsHandler 更新选中的模型
+// @Summary     更新已选中模型列表
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "模型列表 {models: [\"gpt-4\", ...]}"
+// @Success     200   {object}  object
+// @Router      /model-status/config/selected [post]
 func UpdateSelectedModelsHandler(c *gin.Context) {
 	var req struct {
 		Models []string `json:"models"`
@@ -562,6 +758,12 @@ func UpdateSelectedModelsHandler(c *gin.Context) {
 }
 
 // GetTimeWindowHandler 获取时间窗口
+// @Summary     获取当前时间窗口配置
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/config/window [get]
 func GetTimeWindowHandler(c *gin.Context) {
 	mgr := appcache.GetCacheManager()
 	var timeWindow string
@@ -573,6 +775,14 @@ func GetTimeWindowHandler(c *gin.Context) {
 }
 
 // UpdateTimeWindowHandler 更新时间窗口
+// @Summary     更新时间窗口配置
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "时间窗口 {time_window: \"24h\"}"
+// @Success     200   {object}  object
+// @Router      /model-status/config/window [post]
 func UpdateTimeWindowHandler(c *gin.Context) {
 	var req struct {
 		TimeWindow string `json:"time_window"`
@@ -610,6 +820,12 @@ func UpdateTimeWindowHandler(c *gin.Context) {
 }
 
 // GetTimeWindowsHandler 获取所有时间窗口选项
+// @Summary     获取所有可用时间窗口
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/windows [get]
 func GetTimeWindowsHandler(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
@@ -619,6 +835,13 @@ func GetTimeWindowsHandler(c *gin.Context) {
 }
 
 // GetAllModelStatusHandler 获取所有模型状态
+// @Summary     获取所有模型状态
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window  query     string  false  "时间窗口 (1h/6h/12h/24h)"  default(24h)
+// @Success     200     {object}  object
+// @Router      /model-status/status [get]
 func GetAllModelStatusHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", defaultModelStatusTimeWindow)
 	if !stringInSlice(window, modelStatusAvailableTimeWindows) {
@@ -653,6 +876,12 @@ func GetAllModelStatusHandler(c *gin.Context) {
 }
 
 // GetThemeConfigHandler 获取主题配置
+// @Summary     获取模型状态页主题配置
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/config/theme [get]
 func GetThemeConfigHandler(c *gin.Context) {
 	mgr := appcache.GetCacheManager()
 	var theme string
@@ -668,6 +897,14 @@ func GetThemeConfigHandler(c *gin.Context) {
 }
 
 // UpdateThemeConfigHandler 更新主题配置
+// @Summary     更新模型状态页主题
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "主题配置 {theme: \"daylight\"}"
+// @Success     200   {object}  object
+// @Router      /model-status/config/theme [post]
 func UpdateThemeConfigHandler(c *gin.Context) {
 	var req struct {
 		Theme string `json:"theme"`
@@ -701,6 +938,12 @@ func UpdateThemeConfigHandler(c *gin.Context) {
 }
 
 // GetRefreshIntervalHandler 获取刷新间隔
+// @Summary     获取模型状态刷新间隔配置
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/config/refresh [get]
 func GetRefreshIntervalHandler(c *gin.Context) {
 	mgr := appcache.GetCacheManager()
 	var interval int
@@ -716,6 +959,14 @@ func GetRefreshIntervalHandler(c *gin.Context) {
 }
 
 // UpdateRefreshIntervalHandler 更新刷新间隔
+// @Summary     更新模型状态刷新间隔
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "刷新间隔 {refresh_interval: 60}"
+// @Success     200   {object}  object
+// @Router      /model-status/config/refresh [post]
 func UpdateRefreshIntervalHandler(c *gin.Context) {
 	var req struct {
 		RefreshInterval int `json:"refresh_interval"`
@@ -756,6 +1007,12 @@ func UpdateRefreshIntervalHandler(c *gin.Context) {
 // ==================== System Handlers ====================
 
 // GetSystemScaleHandler 获取系统规模
+// @Summary     获取系统规模检测结果
+// @Tags        系统管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /system/scale [get]
 func GetSystemScaleHandler(c *gin.Context) {
 	// 使用新的 DetectScale 方法
 	data, err := systemService.DetectScale(false)
@@ -769,6 +1026,12 @@ func GetSystemScaleHandler(c *gin.Context) {
 }
 
 // RefreshSystemScaleHandler 刷新系统规模
+// @Summary     强制刷新系统规模检测
+// @Tags        系统管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /system/scale/refresh [post]
 func RefreshSystemScaleHandler(c *gin.Context) {
 	// 强制刷新
 	data, err := systemService.DetectScale(true)
@@ -783,6 +1046,12 @@ func RefreshSystemScaleHandler(c *gin.Context) {
 
 // GetWarmupStatusHandler 获取预热状态
 // 直接使用 tasks.WarmupStatus 中维护的状态，避免重复计算
+// @Summary     获取系统预热状态
+// @Tags        系统管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /system/warmup-status [get]
 func GetWarmupStatusHandler(c *gin.Context) {
 	// 从 tasks 包获取预热状态（已包含完整的 8 阶段信息）
 	warmupStatus := tasks.GetWarmupStatus()
@@ -817,6 +1086,12 @@ func GetWarmupStatusHandler(c *gin.Context) {
 }
 
 // GetIndexesHandler 获取索引
+// @Summary     获取数据库索引列表
+// @Tags        系统管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /system/indexes [get]
 func GetIndexesHandler(c *gin.Context) {
 	data, err := systemService.GetIndexes()
 	if err != nil {
@@ -829,6 +1104,12 @@ func GetIndexesHandler(c *gin.Context) {
 }
 
 // EnsureIndexesHandler 确保索引
+// @Summary     确保数据库索引存在
+// @Tags        系统管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /system/indexes/ensure [post]
 func EnsureIndexesHandler(c *gin.Context) {
 	data, err := systemService.EnsureIndexes()
 	if err != nil {
@@ -843,6 +1124,12 @@ func EnsureIndexesHandler(c *gin.Context) {
 // ==================== Storage Handlers ====================
 
 // GetStorageConfigHandler 获取存储配置
+// @Summary     获取存储配置列表
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/config [get]
 func GetStorageConfigHandler(c *gin.Context) {
 	data, err := storageService.GetConfig()
 	if err != nil {
@@ -855,6 +1142,14 @@ func GetStorageConfigHandler(c *gin.Context) {
 }
 
 // UpdateStorageConfigHandler 更新存储配置
+// @Summary     更新存储配置
+// @Tags        存储管理
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      service.StorageConfig  true  "存储配置"
+// @Success     200   {object}  Response{data=object}
+// @Router      /storage/config [post]
 func UpdateStorageConfigHandler(c *gin.Context) {
 	var config service.StorageConfig
 	if err := c.ShouldBindJSON(&config); err != nil {
@@ -872,6 +1167,12 @@ func UpdateStorageConfigHandler(c *gin.Context) {
 }
 
 // CleanupCacheHandler 清理缓存
+// @Summary     清理过期缓存
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache/cleanup [post]
 func CleanupCacheHandler(c *gin.Context) {
 	data, err := storageService.CleanupCache()
 	if err != nil {
@@ -884,6 +1185,13 @@ func CleanupCacheHandler(c *gin.Context) {
 }
 
 // GetStorageConfigByKeyHandler 获取单个配置项
+// @Summary     获取单个存储配置项
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       key  path      string  true  "配置键"
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/config/{key} [get]
 func GetStorageConfigByKeyHandler(c *gin.Context) {
 	key := c.Param("key")
 	data, err := storageService.GetConfigByKey(key)
@@ -895,6 +1203,13 @@ func GetStorageConfigByKeyHandler(c *gin.Context) {
 }
 
 // DeleteStorageConfigHandler 删除配置项
+// @Summary     删除存储配置项
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       key  path      string  true  "配置键"
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/config/{key} [delete]
 func DeleteStorageConfigHandler(c *gin.Context) {
 	key := c.Param("key")
 	if err := storageService.DeleteConfig(key); err != nil {
@@ -905,6 +1220,12 @@ func DeleteStorageConfigHandler(c *gin.Context) {
 }
 
 // GetCacheInfoHandler 获取缓存信息
+// @Summary     获取缓存详细信息
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache/info [get]
 func GetCacheInfoHandler(c *gin.Context) {
 	data, err := storageService.GetCacheInfo()
 	if err != nil {
@@ -915,6 +1236,12 @@ func GetCacheInfoHandler(c *gin.Context) {
 }
 
 // ClearAllCacheHandler 清空所有缓存
+// @Summary     清空所有缓存
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache [delete]
 func ClearAllCacheHandler(c *gin.Context) {
 	if err := storageService.ClearAllCache(); err != nil {
 		Error(c, 500, "清空失败")
@@ -924,6 +1251,12 @@ func ClearAllCacheHandler(c *gin.Context) {
 }
 
 // ClearDashboardCacheHandler 清空仪表板缓存
+// @Summary     清空仪表板缓存
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache/dashboard [delete]
 func ClearDashboardCacheHandler(c *gin.Context) {
 	if err := storageService.ClearDashboardCache(); err != nil {
 		Error(c, 500, "清空失败")
@@ -933,6 +1266,12 @@ func ClearDashboardCacheHandler(c *gin.Context) {
 }
 
 // GetCacheStatsHandler 获取缓存统计
+// @Summary     获取缓存统计信息
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache/stats [get]
 func GetCacheStatsHandler(c *gin.Context) {
 	data, err := storageService.GetCacheStats()
 	if err != nil {
@@ -943,6 +1282,12 @@ func GetCacheStatsHandler(c *gin.Context) {
 }
 
 // CleanupExpiredCacheHandler 清理过期缓存
+// @Summary     清理过期缓存条目
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/cache/cleanup-expired [post]
 func CleanupExpiredCacheHandler(c *gin.Context) {
 	data, err := storageService.CleanupExpiredCache()
 	if err != nil {
@@ -953,6 +1298,12 @@ func CleanupExpiredCacheHandler(c *gin.Context) {
 }
 
 // GetStorageInfoHandler 获取存储信息
+// @Summary     获取存储空间信息
+// @Tags        存储管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /storage/info [get]
 func GetStorageInfoHandler(c *gin.Context) {
 	data, err := storageService.GetStorageInfo()
 	if err != nil {
@@ -965,6 +1316,13 @@ func GetStorageInfoHandler(c *gin.Context) {
 // ==================== Analytics Extended Handlers ====================
 
 // BatchProcessLogsHandler 批量处理日志
+// @Summary     批量处理日志（多轮迭代）
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Param       max_iterations  query     int  false  "最大迭代次数"  default(100)
+// @Success     200             {object}  object
+// @Router      /analytics/batch [post]
 func BatchProcessLogsHandler(c *gin.Context) {
 	maxIterations, _ := strconv.Atoi(c.DefaultQuery("max_iterations", "100"))
 	data, err := analyticsService.BatchProcessLegacy(maxIterations)
@@ -976,6 +1334,12 @@ func BatchProcessLogsHandler(c *gin.Context) {
 }
 
 // GetSyncStatusHandler 获取同步状态
+// @Summary     获取日志同步状态
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /analytics/sync-status [get]
 func GetSyncStatusHandler(c *gin.Context) {
 	data, err := analyticsService.GetLegacySyncStatus()
 	if err != nil {
@@ -986,6 +1350,13 @@ func GetSyncStatusHandler(c *gin.Context) {
 }
 
 // CheckConsistencyHandler 检查数据一致性
+// @Summary     检查日志数据一致性
+// @Tags        日志分析
+// @Produce     json
+// @Security    BearerAuth
+// @Param       auto_reset  query     bool  false  "是否自动重置"  default(false)
+// @Success     200         {object}  object
+// @Router      /analytics/check-consistency [post]
 func CheckConsistencyHandler(c *gin.Context) {
 	autoReset, _ := strconv.ParseBool(c.DefaultQuery("auto_reset", "false"))
 
@@ -1022,6 +1393,13 @@ func CheckConsistencyHandler(c *gin.Context) {
 // ==================== TopUp Extended Handlers ====================
 
 // GetTopUpByIDHandler 获取单个充值记录
+// @Summary     根据 ID 获取充值记录
+// @Tags        充值记录
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id   path      int  true  "充值记录 ID"
+// @Success     200  {object}  Response{data=object}
+// @Router      /top-ups/{id} [get]
 func GetTopUpByIDHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1039,31 +1417,67 @@ func GetTopUpByIDHandler(c *gin.Context) {
 // ==================== Model Status Embed Handlers (Public) ====================
 
 // GetEmbedTimeWindowsHandler [公开] 获取时间窗口
+// @Summary     [公开] 获取可用时间窗口
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Success     200  {object}  object
+// @Router      /model-status/embed/windows [get]
 func GetEmbedTimeWindowsHandler(c *gin.Context) {
 	GetTimeWindowsHandler(c)
 }
 
 // GetEmbedAvailableModelsHandler [公开] 获取可用模型
+// @Summary     [公开] 获取可用模型列表
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Success     200  {object}  object
+// @Router      /model-status/embed/models [get]
 func GetEmbedAvailableModelsHandler(c *gin.Context) {
 	GetAvailableModelsHandler(c)
 }
 
 // GetEmbedModelStatusHandler [公开] 获取模型状态
+// @Summary     [公开] 获取单个模型状态
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Param       model_name  path      string  true   "模型名称"
+// @Param       window      query     string  false  "时间窗口"  default(24h)
+// @Success     200         {object}  object
+// @Router      /model-status/embed/status/{model_name} [get]
 func GetEmbedModelStatusHandler(c *gin.Context) {
 	GetModelStatusHandler(c)
 }
 
 // BatchGetEmbedModelStatusHandler [公开] 批量获取模型状态
+// @Summary     [公开] 批量获取模型状态
+// @Tags        模型状态(公开)
+// @Accept      json
+// @Produce     json
+// @Param       window  query     string  false  "时间窗口"  default(24h)
+// @Param       body    body      object  true   "模型名称列表"
+// @Success     200     {object}  object
+// @Router      /model-status/embed/status/batch [post]
 func BatchGetEmbedModelStatusHandler(c *gin.Context) {
 	BatchGetModelStatusHandler(c)
 }
 
 // GetEmbedAllModelStatusHandler [公开] 获取所有模型状态
+// @Summary     [公开] 获取所有模型状态
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Param       window  query     string  false  "时间窗口"  default(24h)
+// @Success     200     {object}  object
+// @Router      /model-status/embed/status [get]
 func GetEmbedAllModelStatusHandler(c *gin.Context) {
 	GetAllModelStatusHandler(c)
 }
 
 // GetEmbedSelectedModelsHandler [公开] 获取选中模型配置
+// @Summary     [公开] 获取已选中模型及配置
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Success     200  {object}  object
+// @Router      /model-status/embed/config/selected [get]
 func GetEmbedSelectedModelsHandler(c *gin.Context) {
 	GetSelectedModelsHandler(c)
 }

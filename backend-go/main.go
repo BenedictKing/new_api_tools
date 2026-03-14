@@ -1,5 +1,17 @@
 package main
 
+// @title           NewAPI Tools API
+// @version         1.0
+// @description     NewAPI Tools 增强管理中间件 API 文档
+
+// @host      localhost:8000
+// @BasePath  /api
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description 输入格式：Bearer {token}
+
 import (
 	"context"
 	"fmt"
@@ -9,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/BenedictKing/new_api_tools/docs"
 	"github.com/BenedictKing/new_api_tools/frontend"
 	"github.com/BenedictKing/new_api_tools/internal/cache"
 	"github.com/BenedictKing/new_api_tools/internal/config"
@@ -20,6 +33,8 @@ import (
 	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"github.com/BenedictKing/new_api_tools/pkg/jwt"
 	"github.com/gin-gonic/gin"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	swaggerFiles "github.com/swaggo/files"
 	"go.uber.org/zap"
 )
 
@@ -129,6 +144,9 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 	router.Use(middleware.RecoveryMiddleware())
 	router.Use(middleware.CORSMiddleware())
 	router.Use(gin.Logger())
+
+	// Swagger UI（开发用，无需认证）
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// 健康检查（无需认证）
 	router.GET("/health", handler.HealthCheck)

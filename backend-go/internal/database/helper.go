@@ -25,8 +25,10 @@ func GetManager() *Manager {
 }
 
 // getDB 返回底层 *gorm.DB，惰性模式下动态获取最新的 mainDB
+// 同时同步 IsPG 字段，确保外部直接读取 m.IsPG 时结果正确
 func (m *Manager) getDB() *gorm.DB {
 	if m.lazy {
+		m.IsPG = GetDBEngine() == "postgres"
 		return GetMainDB()
 	}
 	return m.DB
@@ -38,6 +40,12 @@ func (m *Manager) isPostgres() bool {
 		return GetDBEngine() == "postgres"
 	}
 	return m.IsPG
+}
+
+// IsPostgres 导出方法：返回是否为 PostgreSQL
+// service 层应使用此方法代替直接读取 IsPG 字段，以确保惰性模式下正确检测数据库类型
+func (m *Manager) IsPostgres() bool {
+	return m.isPostgres()
 }
 
 // Query 执行查询并返回 map 结果集

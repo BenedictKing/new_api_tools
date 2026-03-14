@@ -16,10 +16,11 @@ import (
 
 // Service instances
 var (
-	redemptionService = service.NewRedemptionService()
-	userService       = service.NewUserService()
-	riskService       = service.NewRiskService()
-	ipService         = service.NewIPService()
+	redemptionService     = service.NewRedemptionService()
+	userService           = service.NewUserService()
+	userManagementService = service.NewUserManagementService()
+	riskService           = service.NewRiskService()
+	ipService             = service.NewIPService()
 )
 
 // parseWindowToSeconds 将窗口字符串解析为秒数
@@ -58,6 +59,16 @@ func isSupportedWindow(window string) bool {
 // ==================== Top-Up Handlers ====================
 
 // GetTopUpsHandler 获取充值记录列表
+// @Summary     获取充值记录列表
+// @Tags        充值记录
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"      default(1)
+// @Param       page_size  query     int     false  "每页数量"  default(20)
+// @Param       start_date query     string  false  "开始日期"
+// @Param       end_date   query     string  false  "结束日期"
+// @Success     200        {object}  Response{data=object}
+// @Router      /top-ups [get]
 func GetTopUpsHandler(c *gin.Context) {
 	query := &service.ListTopUpParams{}
 	if err := c.ShouldBindQuery(query); err != nil {
@@ -76,6 +87,14 @@ func GetTopUpsHandler(c *gin.Context) {
 }
 
 // GetTopUpStatisticsHandler 获取充值统计
+// @Summary     获取充值统计
+// @Tags        充值记录
+// @Produce     json
+// @Security    BearerAuth
+// @Param       start_date  query     string  false  "开始日期"
+// @Param       end_date    query     string  false  "结束日期"
+// @Success     200         {object}  Response{data=object}
+// @Router      /top-ups/statistics [get]
 func GetTopUpStatisticsHandler(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
@@ -91,6 +110,12 @@ func GetTopUpStatisticsHandler(c *gin.Context) {
 }
 
 // GetPaymentMethodsHandler 获取支付方式统计
+// @Summary     获取支付方式统计
+// @Tags        充值记录
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /top-ups/payment-methods [get]
 func GetPaymentMethodsHandler(c *gin.Context) {
 	data, err := service.GetPaymentMethods()
 	if err != nil {
@@ -103,6 +128,13 @@ func GetPaymentMethodsHandler(c *gin.Context) {
 }
 
 // RefundTopUpHandler 退款
+// @Summary     充值退款
+// @Tags        充值记录
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id   path      int  true  "充值记录 ID"
+// @Success     200  {object}  Response{data=object}
+// @Router      /top-ups/{id}/refund [post]
 func RefundTopUpHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -122,6 +154,15 @@ func RefundTopUpHandler(c *gin.Context) {
 // ==================== Redemption Handlers ====================
 
 // GetRedemptionsHandler 获取兑换码列表
+// @Summary     获取兑换码列表
+// @Tags        兑换码
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"      default(1)
+// @Param       page_size  query     int     false  "每页数量"  default(20)
+// @Param       status     query     string  false  "状态过滤"
+// @Success     200        {object}  Response{data=object}
+// @Router      /redemptions [get]
 func GetRedemptionsHandler(c *gin.Context) {
 	query := &service.RedemptionQuery{}
 	if err := c.ShouldBindQuery(query); err != nil {
@@ -140,6 +181,12 @@ func GetRedemptionsHandler(c *gin.Context) {
 }
 
 // GetRedemptionStatisticsHandler 获取兑换码统计
+// @Summary     获取兑换码统计
+// @Tags        兑换码
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /redemptions/statistics [get]
 func GetRedemptionStatisticsHandler(c *gin.Context) {
 	data, err := redemptionService.GetRedemptionStatistics()
 	if err != nil {
@@ -152,6 +199,14 @@ func GetRedemptionStatisticsHandler(c *gin.Context) {
 }
 
 // GenerateRedemptionsHandler 批量生成兑换码
+// @Summary     批量生成兑换码
+// @Tags        兑换码
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      service.GenerateConfig  true  "生成配置"
+// @Success     200   {object}  Response{data=object}
+// @Router      /redemptions/generate [post]
 func GenerateRedemptionsHandler(c *gin.Context) {
 	var config service.GenerateConfig
 	if err := c.ShouldBindJSON(&config); err != nil {
@@ -173,6 +228,13 @@ func GenerateRedemptionsHandler(c *gin.Context) {
 }
 
 // DeleteRedemptionHandler 删除兑换码
+// @Summary     删除兑换码
+// @Tags        兑换码
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id   path      int  true  "兑换码 ID"
+// @Success     200  {object}  Response{data=object}
+// @Router      /redemptions/{id} [delete]
 func DeleteRedemptionHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -190,6 +252,14 @@ func DeleteRedemptionHandler(c *gin.Context) {
 }
 
 // BatchDeleteRedemptionsHandler 批量删除兑换码
+// @Summary     批量删除兑换码
+// @Tags        兑换码
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "兑换码 ID 列表 {ids: [1,2,3]}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /redemptions/batch [delete]
 func BatchDeleteRedemptionsHandler(c *gin.Context) {
 	var req struct {
 		IDs []int `json:"ids"`
@@ -212,14 +282,36 @@ func BatchDeleteRedemptionsHandler(c *gin.Context) {
 // ==================== User Handlers ====================
 
 // GetUsersHandler 获取用户列表
+// @Summary     获取用户列表
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page      query     int     false  "页码"      default(1)
+// @Param       page_size query     int     false  "每页数量"  default(20)
+// @Param       activity  query     string  false  "活跃度过滤"
+// @Param       group     query     string  false  "分组过滤"
+// @Param       source    query     string  false  "来源过滤"
+// @Param       search    query     string  false  "搜索关键词"
+// @Param       order_by  query     string  false  "排序字段"
+// @Param       order_dir query     string  false  "排序方向 (asc/desc)"
+// @Success     200       {object}  Response{data=object}
+// @Router      /users [get]
 func GetUsersHandler(c *gin.Context) {
-	query := &service.UserQuery{}
-	if err := c.ShouldBindQuery(query); err != nil {
-		Error(c, 400, "参数错误")
-		return
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	params := service.ListUsersParams{
+		Page:           page,
+		PageSize:       pageSize,
+		ActivityFilter: c.Query("activity"),
+		GroupFilter:    c.Query("group"),
+		SourceFilter:   c.Query("source"),
+		Search:         c.Query("search"),
+		OrderBy:        c.Query("order_by"),
+		OrderDir:       c.Query("order_dir"),
 	}
 
-	data, err := userService.GetUsers(query)
+	data, err := userManagementService.GetUsers(params)
 	if err != nil {
 		logger.Error("获取用户列表失败", zap.Error(err))
 		Error(c, 500, "获取用户列表失败")
@@ -230,6 +322,13 @@ func GetUsersHandler(c *gin.Context) {
 }
 
 // GetUserStatsHandler 获取用户统计
+// @Summary     获取用户活跃度统计
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       quick  query     bool  false  "快速模式"  default(false)
+// @Success     200    {object}  Response{data=object}
+// @Router      /users/stats [get]
 func GetUserStatsHandler(c *gin.Context) {
 	quick, _ := strconv.ParseBool(c.DefaultQuery("quick", "false"))
 
@@ -250,6 +349,15 @@ func GetUserStatsHandler(c *gin.Context) {
 }
 
 // GetBannedUsersHandler 获取封禁用户列表
+// @Summary     获取封禁用户列表
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"      default(1)
+// @Param       page_size  query     int     false  "每页数量"  default(50)
+// @Param       search     query     string  false  "搜索关键词"
+// @Success     200        {object}  Response{data=object}
+// @Router      /users/banned [get]
 func GetBannedUsersHandler(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
@@ -273,6 +381,15 @@ func GetBannedUsersHandler(c *gin.Context) {
 }
 
 // BanUserHandler 封禁用户
+// @Summary     封禁用户
+// @Tags        用户管理
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id  path      int     true  "用户 ID"
+// @Param       body     body      object  false  "封禁参数 {reason: string, disable_tokens: bool}"
+// @Success     200      {object}  Response{data=object}
+// @Router      /users/{user_id}/ban [post]
 func BanUserHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -301,6 +418,15 @@ func BanUserHandler(c *gin.Context) {
 }
 
 // UnbanUserHandler 解封用户
+// @Summary     解封用户
+// @Tags        用户管理
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id  path      int     true  "用户 ID"
+// @Param       body     body      object  false  "解封参数 {enable_tokens: bool}"
+// @Success     200      {object}  Response{data=object}
+// @Router      /users/{user_id}/unban [post]
 func UnbanUserHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -328,6 +454,13 @@ func UnbanUserHandler(c *gin.Context) {
 }
 
 // DeleteUserHandler 删除用户
+// @Summary     删除用户
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id  path      int  true  "用户 ID"
+// @Success     200      {object}  Response{data=object}
+// @Router      /users/{user_id} [delete]
 func DeleteUserHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -345,6 +478,14 @@ func DeleteUserHandler(c *gin.Context) {
 }
 
 // BatchDeleteUsersHandler 批量删除用户（按活跃度级别）
+// @Summary     批量删除用户
+// @Tags        用户管理
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "批量删除参数 {activity_level: string, dry_run: bool, hard_delete: bool}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /users/batch-delete [post]
 func BatchDeleteUsersHandler(c *gin.Context) {
 	var req struct {
 		ActivityLevel string `json:"activity_level"` // very_inactive, inactive 或 never
@@ -373,6 +514,12 @@ func BatchDeleteUsersHandler(c *gin.Context) {
 }
 
 // GetSoftDeletedUsersCountHandler 获取已软删除用户的数量
+// @Summary     获取已软删除用户数量
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /users/soft-deleted/count [get]
 func GetSoftDeletedUsersCountHandler(c *gin.Context) {
 	result, err := userService.GetSoftDeletedUsersCount()
 	if err != nil {
@@ -385,6 +532,14 @@ func GetSoftDeletedUsersCountHandler(c *gin.Context) {
 }
 
 // PurgeSoftDeletedUsersHandler 彻底清理已软删除的用户（物理删除）
+// @Summary     彻底清理软删除用户
+// @Tags        用户管理
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  false  "清理参数 {dry_run: bool}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /users/soft-deleted/purge [post]
 func PurgeSoftDeletedUsersHandler(c *gin.Context) {
 	var req struct {
 		DryRun bool `json:"dry_run"` // 预览模式
@@ -407,6 +562,13 @@ func PurgeSoftDeletedUsersHandler(c *gin.Context) {
 }
 
 // DisableTokenHandler 禁用令牌
+// @Summary     禁用用户令牌
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       token_id  path      int  true  "令牌 ID"
+// @Success     200       {object}  Response{data=object}
+// @Router      /users/tokens/{token_id}/disable [post]
 func DisableTokenHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("token_id"))
 	if err != nil {
@@ -424,6 +586,15 @@ func DisableTokenHandler(c *gin.Context) {
 }
 
 // GetInvitedUsersHandler 获取被邀请用户列表
+// @Summary     获取用户的邀请列表
+// @Tags        用户管理
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id    path      int  true   "用户 ID"
+// @Param       page       query     int  false  "页码"      default(1)
+// @Param       page_size  query     int  false  "每页数量"  default(20)
+// @Success     200        {object}  Response{data=object}
+// @Router      /users/{user_id}/invited [get]
 func GetInvitedUsersHandler(c *gin.Context) {
 	inviterID, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -448,6 +619,15 @@ func GetInvitedUsersHandler(c *gin.Context) {
 // ==================== Risk Monitoring Handlers ====================
 
 // GetLeaderboardsHandler 获取排行榜
+// @Summary     获取风控排行榜
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       windows  query     string  false  "时间窗口列表，逗号分隔"  default(1h,3h,6h,12h,24h)
+// @Param       limit    query     int     false  "每个窗口返回数量"        default(10)
+// @Param       sort_by  query     string  false  "排序字段 (requests/quota/failure_rate)"  default(requests)
+// @Success     200      {object}  Response{data=object}
+// @Router      /risk/leaderboards [get]
 func GetLeaderboardsHandler(c *gin.Context) {
 	windows := c.DefaultQuery("windows", "1h,3h,6h,12h,24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
@@ -485,6 +665,14 @@ func GetLeaderboardsHandler(c *gin.Context) {
 }
 
 // GetUserRiskAnalysisHandler 获取用户风险分析
+// @Summary     获取用户风险分析
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id  path      int     true   "用户 ID"
+// @Param       window   query     string  false  "时间窗口"  default(24h)
+// @Success     200      {object}  Response{data=object}
+// @Router      /risk/users/{user_id}/analysis [get]
 func GetUserRiskAnalysisHandler(c *gin.Context) {
 	userID, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -509,6 +697,16 @@ func GetUserRiskAnalysisHandler(c *gin.Context) {
 }
 
 // GetBanRecordsHandler 获取封禁记录
+// @Summary     获取封禁记录
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       page       query     int     false  "页码"                      default(1)
+// @Param       page_size  query     int     false  "每页数量"                  default(50)
+// @Param       action     query     string  false  "操作类型 (ban/unban)"
+// @Param       user_id    query     int     false  "过滤用户 ID"
+// @Success     200        {object}  Response{data=object}
+// @Router      /risk/ban-records [get]
 func GetBanRecordsHandler(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
@@ -560,6 +758,16 @@ func GetBanRecordsHandler(c *gin.Context) {
 }
 
 // GetTokenRotationHandler 获取令牌轮换情况
+// @Summary     获取令牌轮换异常用户
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window                query     string  false  "时间窗口"            default(24h)
+// @Param       min_tokens            query     int     false  "最小令牌数"          default(5)
+// @Param       max_requests_per_token query    int     false  "每令牌最大请求数"    default(10)
+// @Param       limit                 query     int     false  "返回数量"            default(50)
+// @Success     200                   {object}  Response{data=object}
+// @Router      /risk/token-rotation [get]
 func GetTokenRotationHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", "24h")
 	if !isSupportedWindow(window) {
@@ -581,6 +789,15 @@ func GetTokenRotationHandler(c *gin.Context) {
 }
 
 // GetAffiliatedAccountsHandler 获取关联账户
+// @Summary     获取关联账户（邀请关系）
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       min_invited       query     int   false  "最小邀请数"        default(3)
+// @Param       include_activity  query     bool  false  "包含活跃度数据"    default(true)
+// @Param       limit             query     int   false  "返回数量"          default(50)
+// @Success     200               {object}  Response{data=object}
+// @Router      /risk/affiliated-accounts [get]
 func GetAffiliatedAccountsHandler(c *gin.Context) {
 	minInvited, _ := strconv.Atoi(c.DefaultQuery("min_invited", "3"))
 	includeActivity, _ := strconv.ParseBool(c.DefaultQuery("include_activity", "true"))
@@ -597,6 +814,15 @@ func GetAffiliatedAccountsHandler(c *gin.Context) {
 }
 
 // GetSameIPRegistrationsHandler 获取同 IP 注册用户
+// @Summary     获取同 IP 注册用户
+// @Tags        风控监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window     query     string  false  "时间窗口"  default(7d)
+// @Param       min_users  query     int     false  "最小用户数"  default(3)
+// @Param       limit      query     int     false  "返回数量"    default(50)
+// @Success     200        {object}  Response{data=object}
+// @Router      /risk/same-ip-registrations [get]
 func GetSameIPRegistrationsHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", "7d")
 	if !isSupportedWindow(window) {
@@ -619,6 +845,12 @@ func GetSameIPRegistrationsHandler(c *gin.Context) {
 // ==================== IP Monitoring Handlers ====================
 
 // GetIPStatsHandler 获取 IP 统计
+// @Summary     获取 IP 统计信息
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ip-monitoring/stats [get]
 func GetIPStatsHandler(c *gin.Context) {
 	data, err := ipService.GetIPStats()
 	if err != nil {
@@ -631,6 +863,15 @@ func GetIPStatsHandler(c *gin.Context) {
 }
 
 // GetSharedIPsHandler 获取共享 IP
+// @Summary     获取共享 IP 列表
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       min_tokens  query     int     false  "最小令牌/用户数"  default(2)
+// @Param       limit       query     int     false  "返回数量"         default(50)
+// @Param       window      query     string  false  "时间窗口"         default(24h)
+// @Success     200         {object}  Response{data=object}
+// @Router      /ip-monitoring/shared-ips [get]
 func GetSharedIPsHandler(c *gin.Context) {
 	minTokensStr := c.Query("min_tokens")
 	if minTokensStr == "" {
@@ -652,6 +893,15 @@ func GetSharedIPsHandler(c *gin.Context) {
 }
 
 // GetMultiIPTokensHandler 获取多 IP 令牌
+// @Summary     获取使用多个 IP 的令牌
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       min_ips  query     int     false  "最小 IP 数"  default(5)
+// @Param       limit    query     int     false  "返回数量"     default(50)
+// @Param       window   query     string  false  "时间窗口"     default(24h)
+// @Success     200      {object}  Response{data=object}
+// @Router      /ip-monitoring/multi-ip-tokens [get]
 func GetMultiIPTokensHandler(c *gin.Context) {
 	minIPs, _ := strconv.Atoi(c.DefaultQuery("min_ips", "5"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
@@ -669,6 +919,15 @@ func GetMultiIPTokensHandler(c *gin.Context) {
 }
 
 // GetMultiIPUsersHandler 获取多 IP 用户
+// @Summary     获取使用多个 IP 的用户
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       min_ips  query     int     false  "最小 IP 数"  default(10)
+// @Param       limit    query     int     false  "返回数量"     default(50)
+// @Param       window   query     string  false  "时间窗口"     default(24h)
+// @Success     200      {object}  Response{data=object}
+// @Router      /ip-monitoring/multi-ip-users [get]
 func GetMultiIPUsersHandler(c *gin.Context) {
 	minIPs, _ := strconv.Atoi(c.DefaultQuery("min_ips", "10"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
@@ -686,6 +945,13 @@ func GetMultiIPUsersHandler(c *gin.Context) {
 }
 
 // GetIPGeoHandler 获取单个 IP 地理信息
+// @Summary     获取 IP 地理信息
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       ip   path      string  true  "IP 地址"
+// @Success     200  {object}  Response{data=object}
+// @Router      /ip-monitoring/geo/{ip} [get]
 func GetIPGeoHandler(c *gin.Context) {
 	ip := c.Param("ip")
 	if ip == "" {
@@ -701,6 +967,14 @@ func GetIPGeoHandler(c *gin.Context) {
 }
 
 // BatchGetIPGeoHandler 批量获取 IP 地理信息
+// @Summary     批量获取 IP 地理信息
+// @Tags        IP监控
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "IP 列表 {ips: [\"1.2.3.4\", ...]}"
+// @Success     200   {object}  Response{data=object}
+// @Router      /ip-monitoring/geo/batch [post]
 func BatchGetIPGeoHandler(c *gin.Context) {
 	var req struct {
 		IPs []string `json:"ips"`
@@ -773,6 +1047,15 @@ func GetGeoIPStatusHandler(c *gin.Context) {
 }
 
 // GetUserIPsHandler 获取用户的 IP 列表
+// @Summary     获取用户的 IP 访问列表
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id  path      int     true   "用户 ID"
+// @Param       limit    query     int     false  "返回数量"  default(100)
+// @Param       window   query     string  false  "时间窗口"  default(24h)
+// @Success     200      {object}  Response{data=object}
+// @Router      /ip-monitoring/users/{user_id}/ips [get]
 func GetUserIPsHandler(c *gin.Context) {
 	userID, err := strconv.Atoi(c.Param("user_id"))
 	if err != nil {
@@ -794,6 +1077,12 @@ func GetUserIPsHandler(c *gin.Context) {
 }
 
 // GetIPIndexStatusHandler 获取 IP 索引状态
+// @Summary     获取 IP 索引状态
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ip-monitoring/index-status [get]
 func GetIPIndexStatusHandler(c *gin.Context) {
 	status, err := ipService.GetIndexStatus()
 	if err != nil {
@@ -805,6 +1094,12 @@ func GetIPIndexStatusHandler(c *gin.Context) {
 }
 
 // EnsureIPIndexesHandler 确保 IP 索引
+// @Summary     确保 IP 相关数据库索引存在
+// @Tags        IP监控
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /ip-monitoring/ensure-indexes [post]
 func EnsureIPIndexesHandler(c *gin.Context) {
 	results, created, existing, err := ipService.EnsureIndexes()
 	if err != nil {

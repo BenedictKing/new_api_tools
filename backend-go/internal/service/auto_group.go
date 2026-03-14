@@ -36,7 +36,7 @@ func NewAutoGroupService() *AutoGroupService {
 
 // getGroupCol returns the properly quoted column name for "group"
 func (s *AutoGroupService) getGroupCol() string {
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		return `"group"`
 	}
 	return "`group`"
@@ -238,7 +238,7 @@ func (s *AutoGroupService) buildWhitelistCondition(whitelistIDs []int64, argIdx 
 	}
 
 	var args []interface{}
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		placeholders := make([]string, len(whitelistIDs))
 		for i, id := range whitelistIDs {
 			placeholders[i] = fmt.Sprintf("$%d", argIdx)
@@ -293,7 +293,7 @@ func (s *AutoGroupService) GetStats() map[string]interface{} {
 		AND status = 1
 		%s`, groupCol, groupCol, wlCond)
 
-	if !s.db.IsPG {
+	if !s.db.IsPostgres() {
 		pendingSQL = s.db.RebindQuery(pendingSQL)
 	}
 
@@ -393,7 +393,7 @@ func (s *AutoGroupService) GetPendingUsers(page, pageSize int) map[string]interf
 		AND status = 1
 		%s`, groupCol, groupCol, wlCond)
 
-	if !s.db.IsPG {
+	if !s.db.IsPostgres() {
 		countSQL = s.db.RebindQuery(countSQL)
 	}
 
@@ -409,7 +409,7 @@ func (s *AutoGroupService) GetPendingUsers(page, pageSize int) map[string]interf
 	listArgs = append(listArgs, args...)
 
 	var listSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		listSQL = fmt.Sprintf(`
 			SELECT id, username, display_name, email, %s as user_group, status%s
 			FROM users
@@ -486,7 +486,7 @@ func (s *AutoGroupService) GetUsers(page, pageSize int, group, source, keyword s
 		if group == "default" {
 			where = append(where, fmt.Sprintf("(COALESCE(%s, 'default') = 'default' OR %s = '')", groupCol, groupCol))
 		} else {
-			if s.db.IsPG {
+			if s.db.IsPostgres() {
 				where = append(where, fmt.Sprintf("%s = $%d", groupCol, argIdx))
 				argIdx++
 			} else {
@@ -497,7 +497,7 @@ func (s *AutoGroupService) GetUsers(page, pageSize int, group, source, keyword s
 	}
 
 	if keyword != "" {
-		if s.db.IsPG {
+		if s.db.IsPostgres() {
 			where = append(where, fmt.Sprintf("(username ILIKE $%d OR CAST(id AS TEXT) LIKE $%d)", argIdx, argIdx+1))
 			args = append(args, "%"+keyword+"%", "%"+keyword+"%")
 			argIdx += 2
@@ -515,7 +515,7 @@ func (s *AutoGroupService) GetUsers(page, pageSize int, group, source, keyword s
 			"discord": true, "oidc": true, "linux_do": true, "password": true,
 		}
 		if validSources[source] {
-			if s.db.IsPG {
+			if s.db.IsPostgres() {
 				where = append(where, fmt.Sprintf("(%s) = $%d", sourceCaseSQL, argIdx))
 				argIdx++
 			} else {
@@ -529,7 +529,7 @@ func (s *AutoGroupService) GetUsers(page, pageSize int, group, source, keyword s
 
 	// Count total (now includes source filter if specified)
 	countSQL := fmt.Sprintf("SELECT COUNT(*) as cnt FROM users WHERE %s", whereClause)
-	if !s.db.IsPG {
+	if !s.db.IsPostgres() {
 		countSQL = s.db.RebindQuery(countSQL)
 	}
 	total := int64(0)
@@ -543,7 +543,7 @@ func (s *AutoGroupService) GetUsers(page, pageSize int, group, source, keyword s
 	listArgs = append(listArgs, args...)
 
 	var listSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		listSQL = fmt.Sprintf(`
 			SELECT id, username, display_name, email, %s as user_group, status%s
 			FROM users
@@ -605,7 +605,7 @@ func (s *AutoGroupService) assignUser(userID int64, targetGroup, operator string
 	oauthCols := s.buildOAuthSelectCols()
 
 	var userSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		userSQL = fmt.Sprintf(
 			"SELECT id, username, %s as user_group%s FROM users WHERE id = $1 AND deleted_at IS NULL",
 			groupCol, oauthCols)
@@ -631,7 +631,7 @@ func (s *AutoGroupService) assignUser(userID int64, targetGroup, operator string
 	source := s.detectSource(userRow)
 
 	var updateSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		updateSQL = fmt.Sprintf("UPDATE users SET %s = $1 WHERE id = $2", groupCol)
 	} else {
 		updateSQL = fmt.Sprintf("UPDATE users SET %s = ? WHERE id = ?", groupCol)
@@ -739,7 +739,7 @@ func (s *AutoGroupService) RunScan(dryRun bool) map[string]interface{} {
 		// Batch UPDATE in one SQL
 		var updateSQL string
 		updateArgs := make([]interface{}, 0)
-		if s.db.IsPG {
+		if s.db.IsPostgres() {
 			updateSQL = fmt.Sprintf(`
 				UPDATE users SET %s = $1
 				WHERE (COALESCE(%s, 'default') = 'default' OR %s = '')
@@ -1002,7 +1002,7 @@ func (s *AutoGroupService) RevertUser(logID int) map[string]interface{} {
 
 	// Check current user group
 	var userSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		userSQL = fmt.Sprintf("SELECT id, %s as user_group FROM users WHERE id = $1 AND deleted_at IS NULL", groupCol)
 	} else {
 		userSQL = fmt.Sprintf("SELECT id, %s as user_group FROM users WHERE id = ? AND deleted_at IS NULL", groupCol)
@@ -1030,7 +1030,7 @@ func (s *AutoGroupService) RevertUser(logID int) map[string]interface{} {
 
 	// Revert the group
 	var updateSQL string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		updateSQL = fmt.Sprintf("UPDATE users SET %s = $1 WHERE id = $2", groupCol)
 	} else {
 		updateSQL = fmt.Sprintf("UPDATE users SET %s = ? WHERE id = ?", groupCol)

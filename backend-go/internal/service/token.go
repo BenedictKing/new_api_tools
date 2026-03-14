@@ -59,7 +59,7 @@ func NewTokenService() *TokenService {
 
 // keyCol returns the properly quoted column name for 'key' (reserved word)
 func (s *TokenService) keyCol() string {
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		return `"key"`
 	}
 	return "`key`"
@@ -67,7 +67,7 @@ func (s *TokenService) keyCol() string {
 
 // groupCol returns the properly quoted column name for 'group' (reserved word)
 func (s *TokenService) groupCol() string {
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		return `"group"`
 	}
 	return "`group`"

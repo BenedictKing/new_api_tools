@@ -102,11 +102,11 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 
 	// User info
 	groupCol := "`group`"
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		groupCol = `"group"`
 	}
 	userRow, _ := s.db.QueryOne(s.db.RebindQuery(
-		fmt.Sprintf("SELECT id, username, display_name, email, status, %s, remark, linux_do_id, request_count FROM users WHERE id = ? AND deleted_at IS NULL", groupCol)), userID)
+		fmt.Sprintf("SELECT id, username, display_name, email, status, %s, remark, linux_do_id, request_count, quota, used_quota FROM users WHERE id = ? AND deleted_at IS NULL", groupCol)), userID)
 
 	// Build user object
 	userInfo := map[string]interface{}{
@@ -118,6 +118,8 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 		"group":        nil,
 		"remark":       nil,
 		"linux_do_id":  nil,
+		"quota":        0,
+		"used_quota":   0,
 	}
 	if userRow != nil {
 		userInfo["id"] = userRow["id"]
@@ -128,6 +130,8 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 		userInfo["group"] = userRow["group"]
 		userInfo["remark"] = userRow["remark"]
 		userInfo["linux_do_id"] = userRow["linux_do_id"]
+		userInfo["quota"] = userRow["quota"]
+		userInfo["used_quota"] = userRow["used_quota"]
 	}
 
 	// Usage stats in window

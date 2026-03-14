@@ -46,6 +46,12 @@ func ErrorWithStatus(c *gin.Context, httpStatus int, code int, message string) {
 }
 
 // HealthCheck 健康检查
+// @Summary     健康检查
+// @Tags        健康检查
+// @Produce     json
+// @Success     200  {object}  Response{data=object}
+// @Failure     503  {object}  Response
+// @Router      /health [get]
 func HealthCheck(c *gin.Context) {
 	// 检查数据库
 	if err := database.HealthCheck(); err != nil {
@@ -68,6 +74,12 @@ func HealthCheck(c *gin.Context) {
 }
 
 // DatabaseHealthCheck 数据库健康检查
+// @Summary     数据库健康检查
+// @Tags        健康检查
+// @Produce     json
+// @Success     200  {object}  object
+// @Failure     503  {object}  object
+// @Router      /health/db [get]
 func DatabaseHealthCheck(c *gin.Context) {
 	cfg := config.Get()
 
@@ -107,6 +119,13 @@ type LoginResponse struct {
 }
 
 // Login 管理员登录
+// @Summary     管理员登录
+// @Tags        认证
+// @Accept      json
+// @Produce     json
+// @Param       body  body      LoginRequest  true  "登录请求"
+// @Success     200   {object}  LoginResponse
+// @Router      /auth/login [post]
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,6 +166,12 @@ func Login(c *gin.Context) {
 }
 
 // Logout 登出
+// @Summary     管理员登出
+// @Tags        认证
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /auth/logout [post]
 func Logout(c *gin.Context) {
 	// JWT 是无状态的，登出只需要客户端删除 Token
 	Success(c, gin.H{

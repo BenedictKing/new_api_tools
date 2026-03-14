@@ -170,7 +170,7 @@ func (s *UserManagementService) GetUsers(params ListUsersParams) (map[string]int
 	}
 
 	groupCol := "`group`"
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		groupCol = `"group"`
 	}
 
@@ -189,7 +189,7 @@ func (s *UserManagementService) GetUsers(params ListUsersParams) (map[string]int
 	if params.Search != "" {
 		// Build search fields: always include username, display_name, email, aff_code
 		// Conditionally include linux_do_id if it exists
-		if s.db.IsPG {
+		if s.db.IsPostgres() {
 			searchFields := []string{
 				fmt.Sprintf("u.username ILIKE $%d", argIdx),
 				fmt.Sprintf("COALESCE(u.display_name,'') ILIKE $%d", argIdx+1),
@@ -230,7 +230,7 @@ func (s *UserManagementService) GetUsers(params ListUsersParams) (map[string]int
 		}
 	}
 	if params.GroupFilter != "" {
-		if s.db.IsPG {
+		if s.db.IsPostgres() {
 			where = append(where, fmt.Sprintf("u.%s = $%d", groupCol, argIdx))
 			argIdx++
 		} else {
@@ -274,7 +274,7 @@ func (s *UserManagementService) GetUsers(params ListUsersParams) (map[string]int
 
 	// Count total
 	countQuery := fmt.Sprintf("SELECT COUNT(*) as count FROM users u WHERE %s", whereClause)
-	if !s.db.IsPG {
+	if !s.db.IsPostgres() {
 		countQuery = s.db.RebindQuery(countQuery)
 	}
 	countRow, err := s.db.QueryOne(countQuery, args...)
@@ -291,7 +291,7 @@ func (s *UserManagementService) GetUsers(params ListUsersParams) (map[string]int
 	}
 
 	var selectQuery string
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		selectQuery = fmt.Sprintf(
 			"SELECT %s FROM users u WHERE %s ORDER BY u.%s %s LIMIT $%d OFFSET $%d",
 			selectCols, whereClause, params.OrderBy, orderDir, argIdx, argIdx+1)
@@ -380,7 +380,7 @@ func (s *UserManagementService) GetBannedUsers(page, pageSize int, search string
 	args := []interface{}{}
 
 	if search != "" {
-		if s.db.IsPG {
+		if s.db.IsPostgres() {
 			where += " AND u.username ILIKE $1"
 		} else {
 			where += " AND u.username LIKE ?"
@@ -402,7 +402,7 @@ func (s *UserManagementService) GetBannedUsers(page, pageSize int, search string
 			"u.quota, u.used_quota, u.request_count "+
 			"FROM users u WHERE %s ORDER BY u.id DESC LIMIT %d OFFSET %d",
 		where, pageSize, offset)
-	if !s.db.IsPG {
+	if !s.db.IsPostgres() {
 		query = s.db.RebindQuery(query)
 	}
 
@@ -603,7 +603,7 @@ func (s *UserManagementService) GetInvitedUsers(userID int64, page, pageSize int
 
 	// Get invited users list
 	groupCol := "`group`"
-	if s.db.IsPG {
+	if s.db.IsPostgres() {
 		groupCol = `"group"`
 	}
 	query := s.db.RebindQuery(fmt.Sprintf(`

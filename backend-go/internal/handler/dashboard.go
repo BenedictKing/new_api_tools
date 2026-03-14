@@ -16,6 +16,12 @@ var dashboardService = service.NewDashboardService()
 var ipDistributionService = service.NewIPDistributionService()
 
 // GetDashboardOverview 获取系统概览
+// @Summary     获取系统概览
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /dashboard/overview [get]
 func GetDashboardOverview(c *gin.Context) {
 	data, err := dashboardService.GetOverview()
 	if err != nil {
@@ -28,6 +34,13 @@ func GetDashboardOverview(c *gin.Context) {
 }
 
 // GetDashboardUsage 获取使用统计
+// @Summary     获取使用统计
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期 (today/7d/30d)"  default(today)
+// @Success     200     {object}  Response{data=object}
+// @Router      /dashboard/usage [get]
 func GetDashboardUsage(c *gin.Context) {
 	period := c.DefaultQuery("period", "today")
 
@@ -42,6 +55,14 @@ func GetDashboardUsage(c *gin.Context) {
 }
 
 // GetDashboardModels 获取模型使用统计
+// @Summary     获取模型使用统计
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期"  default(24h)
+// @Param       limit   query     int     false  "返回数量"  default(10)
+// @Success     200     {object}  Response{data=object}
+// @Router      /dashboard/models [get]
 func GetDashboardModels(c *gin.Context) {
 	period := c.DefaultQuery("period", "24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
@@ -57,6 +78,13 @@ func GetDashboardModels(c *gin.Context) {
 }
 
 // GetDailyTrends 获取每日趋势
+// @Summary     获取每日趋势
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       days  query     int  false  "天数"  default(30)
+// @Success     200   {object}  Response{data=object}
+// @Router      /dashboard/trends/daily [get]
 func GetDailyTrends(c *gin.Context) {
 	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
 
@@ -71,6 +99,13 @@ func GetDailyTrends(c *gin.Context) {
 }
 
 // GetHourlyTrends 获取每小时趋势
+// @Summary     获取每小时趋势
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       hours  query     int  false  "小时数 (1-168)"  default(24)
+// @Success     200    {object}  Response{data=object}
+// @Router      /dashboard/trends/hourly [get]
 func GetHourlyTrends(c *gin.Context) {
 	hours, _ := strconv.Atoi(c.DefaultQuery("hours", "24"))
 	if hours <= 0 || hours > 168 { // 最多 7 天
@@ -88,6 +123,15 @@ func GetHourlyTrends(c *gin.Context) {
 }
 
 // GetTopUsers 获取用户排行
+// @Summary     获取用户排行榜
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period    query     string  false  "时间周期"         default(24h)
+// @Param       limit     query     int     false  "返回数量 (1-100)"  default(10)
+// @Param       order_by  query     string  false  "排序字段 (requests/quota)"  default(requests)
+// @Success     200       {object}  Response{data=object}
+// @Router      /dashboard/top-users [get]
 func GetTopUsers(c *gin.Context) {
 	period := c.DefaultQuery("period", "24h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
@@ -107,6 +151,12 @@ func GetTopUsers(c *gin.Context) {
 }
 
 // GetChannelStatus 获取渠道状态
+// @Summary     获取渠道状态
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /dashboard/channels [get]
 func GetChannelStatus(c *gin.Context) {
 	data, err := dashboardService.GetChannelStatus()
 	if err != nil {
@@ -119,6 +169,13 @@ func GetChannelStatus(c *gin.Context) {
 }
 
 // GetIPDistribution 获取 IP 分布
+// @Summary     获取 IP 地理分布
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       window  query     string  false  "时间窗口"  default(24h)
+// @Success     200     {object}  Response{data=object}
+// @Router      /dashboard/ip-distribution [get]
 func GetIPDistribution(c *gin.Context) {
 	window := c.DefaultQuery("window", "24h")
 
@@ -133,6 +190,12 @@ func GetIPDistribution(c *gin.Context) {
 }
 
 // GetSystemInfo 获取系统信息
+// @Summary     获取系统信息
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  Response{data=object}
+// @Router      /dashboard/system-info [get]
 func GetSystemInfo(c *gin.Context) {
 	data, err := dashboardService.GetSystemInfo()
 	if err != nil {
@@ -144,6 +207,14 @@ func GetSystemInfo(c *gin.Context) {
 }
 
 // InvalidateCache 清除缓存
+// @Summary     清除仪表盘缓存
+// @Tags        仪表盘
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  false  "指定要清除的缓存 keys，空则清除全部"
+// @Success     200   {object}  Response{data=object}
+// @Router      /dashboard/cache/invalidate [post]
 func InvalidateCache(c *gin.Context) {
 	var req struct {
 		Keys []string `json:"keys"`
@@ -182,6 +253,13 @@ func InvalidateCache(c *gin.Context) {
 }
 
 // GetRefreshEstimate 获取刷新时间估算
+// @Summary     获取缓存刷新时间估算
+// @Tags        仪表盘
+// @Produce     json
+// @Security    BearerAuth
+// @Param       period  query     string  false  "时间周期"  default(24h)
+// @Success     200     {object}  Response{data=object}
+// @Router      /dashboard/refresh-estimate [get]
 func GetRefreshEstimate(c *gin.Context) {
 	period := c.DefaultQuery("period", "24h")
 
