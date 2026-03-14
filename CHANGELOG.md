@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **前端全量 API 层重构**：从 Swagger/OpenAPI 生成 TypeScript 类型，建立统一类型安全 API client 层
+  - 新增 `frontend/src/api/schema.d.ts`：通过 `openapi-typescript` 从后端 `swagger.json` 自动生成（含 swagger2openapi 2.0→3.0 转换链路）
+  - 新增 `frontend/src/api/client.ts`：`createAuthClient()` 工厂函数 + `publicClient`，基于 `openapi-fetch`（~5KB）
+  - 新增 `frontend/src/api/endpoints/*.ts`：14 个业务模块 endpoint 封装（auth/dashboard/topups/tokens/redemptions/users/risk/ip-monitoring/ai-ban/analytics/model-status/system/storage/auto-group）
+  - 新增 `frontend/src/api/index.ts`：统一导出所有 endpoint 工厂函数
+  - 新增 `frontend/src/types/common.ts`：`ApiResponse<T>`、`PaginatedResponse<T>` 泛型通用类型
+  - 新增 `package.json` `generate:api` 脚本 + 根 `Makefile` `generate-api-types` target，支持一键重新生成
+
+### Changed
+- **前端组件迁移**：Tokens、Redemptions、TopUps、Dashboard、UserManagement 五个核心组件完成迁移
+  - 移除各组件内重复的本地 `PaginatedResponse` interface 定义（至少3处重复）
+  - 将裸 `fetch()` 调用替换为类型安全的 `createXxxApi(client).method()` 调用
+  - 错误检查从 `data.success` 改为 `openapi-fetch` 返回的 `{ data, error }` 模式
+  - 依赖移除：各组件的 `apiUrl`、`getAuthHeaders` 样板代码统一消除
+
 ### Fixed
 - **Dashboard 请求榜/土豪榜不显示**：统一前后端 top-users 接口契约
   - 后端 `TopUser` 字段从 `requests/quota` 重命名为 `request_count/quota_used`，与前端期望一致

@@ -4,7 +4,7 @@ GREEN=\033[0;32m
 YELLOW=\033[0;33m
 NC=\033[0m
 
-.PHONY: help dev run build clean frontend-dev frontend-build embed-frontend
+.PHONY: help dev run build clean frontend-dev frontend-build embed-frontend generate-api-types
 
 help:
 	@echo "$(GREEN)NewAPI Tools - 可用命令:$(NC)"
@@ -22,6 +22,7 @@ help:
 	@echo "$(YELLOW)Docker:$(NC)"
 	@echo "  make docker-build   - 构建 Docker 镜像"
 	@echo "  make docker-run     - 运行 Docker 容器"
+	@echo "  make generate-api-types - 从后端 swagger 生成前端 TS 类型"
 
 dev:
 	@echo "$(GREEN)🚀 启动前后端开发模式...$(NC)"
@@ -59,3 +60,10 @@ docker-build:
 docker-run:
 	@echo "$(GREEN)🐳 运行 Docker 容器...$(NC)"
 	@docker run -d --name newapi-tools -p 3000:3000 newapi-tools:latest
+
+generate-api-types: ## 从后端 swagger 生成前端 TypeScript 类型
+	@echo "$(GREEN)📐 生成后端 Swagger 文档...$(NC)"
+	@cd backend-go && swag init -g main.go -o docs --parseInternal
+	@echo "$(GREEN)🔄 生成前端 TypeScript 类型...$(NC)"
+	@cd frontend && bun run generate:api
+	@echo "$(GREEN)✅ API types regenerated$(NC)"
