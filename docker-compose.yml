@@ -13,7 +13,7 @@ services:
     image: ghcr.io/james-6-23/new_api_tools:latest
     container_name: newapi-tools
     ports:
-      - "${FRONTEND_PORT:-1145}:80"
+      - "${FRONTEND_PORT:-1145}:8000"
     environment:
       # 数据库配置 (Go 版本统一使用 SQL_DSN)
       - SQL_DSN=${SQL_DSN:-}
