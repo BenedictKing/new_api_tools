@@ -40,15 +40,23 @@ interface TokenStatistics {
   expired: number
 }
 
+interface TokenGroupSummary {
+  group_name: string
+  token_count: number
+  active_count: number
+}
+
 type StatusFilter = '' | 'active' | 'disabled' | 'expired'
 
 export function Tokens() {
   const { showToast } = useToast()
   const { token } = useAuth()
   const api = useMemo(() => createTokensApi(createAuthClient(token ?? '')), [token])
+  const apiUrl = import.meta.env.VITE_API_URL || ''
 
   const [tokens, setTokens] = useState<TokenRecord[]>([])
   const [statistics, setStatistics] = useState<TokenStatistics | null>(null)
+  const [groups, setGroups] = useState<TokenGroupSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [statsLoading, setStatsLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -56,6 +64,7 @@ export function Tokens() {
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
+  const [groupFilter, setGroupFilter] = useState('')
   const [nameSearch, setNameSearch] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false)
@@ -70,6 +79,21 @@ export function Tokens() {
     } finally { setStatsLoading(false) }
   }, [api])
 
+  const fetchGroups = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/tokens/groups`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+      const resp = await response.json()
+      setGroups((resp?.data as TokenGroupSummary[]) || [])
+    } catch (error) {
+      console.error('Failed to fetch token groups:', error)
+    }
+  }, [apiUrl, token])
+
   const fetchTokens = useCallback(async () => {
     setLoading(true)
     try {
@@ -77,6 +101,7 @@ export function Tokens() {
         page,
         page_size: pageSize,
         ...(statusFilter ? { status: statusFilter } : {}),
+        ...(groupFilter ? { group: groupFilter } : {}),
         ...(nameSearch ? { name: nameSearch } : {}),
       })
       if (error) { showToast('error', '获取令牌列表失败'); return }
@@ -88,15 +113,16 @@ export function Tokens() {
       showToast('error', '网络错误，请重试')
       console.error('Failed to fetch tokens:', error)
     } finally { setLoading(false) }
-  }, [api, page, pageSize, statusFilter, nameSearch, showToast])
+  }, [api, page, pageSize, statusFilter, groupFilter, nameSearch, showToast])
 
   useEffect(() => { fetchTokens() }, [fetchTokens])
   useEffect(() => { fetchStatistics() }, [fetchStatistics])
-  useEffect(() => { setPage(1) }, [statusFilter, nameSearch])
+  useEffect(() => { fetchGroups() }, [fetchGroups])
+  useEffect(() => { setPage(1) }, [statusFilter, groupFilter, nameSearch])
 
   const handleRefresh = async () => {
     setRefreshing(true)
-    await Promise.all([fetchTokens(), fetchStatistics()])
+    await Promise.all([fetchTokens(), fetchStatistics(), fetchGroups()])
     setRefreshing(false)
     showToast('success', '数据已刷新')
   }
@@ -125,7 +151,6 @@ export function Tokens() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">令牌管理</h2>
@@ -139,7 +164,6 @@ export function Tokens() {
         </div>
       </div>
 
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           title="总令牌"
@@ -175,7 +199,6 @@ export function Tokens() {
         />
       </div>
 
-      {/* Filters */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -207,8 +230,19 @@ export function Tokens() {
                 <option value="expired">已过期</option>
               </Select>
             </div>
-            <div className="flex items-end lg:col-span-2 justify-end">
-              <Button variant="ghost" size="sm" onClick={() => { setStatusFilter(''); setNameSearch('') }} className="text-muted-foreground hover:text-foreground">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">分组</label>
+              <Select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+                <option value="">全部分组</option>
+                {groups.map((group) => (
+                  <option key={group.group_name} value={group.group_name}>
+                    {group.group_name} ({group.token_count})
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-end justify-end">
+              <Button variant="ghost" size="sm" onClick={() => { setStatusFilter(''); setGroupFilter(''); setNameSearch('') }} className="text-muted-foreground hover:text-foreground">
                 重置筛选
               </Button>
             </div>
@@ -216,7 +250,6 @@ export function Tokens() {
         </CardContent>
       </Card>
 
-      {/* Table */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -242,6 +275,7 @@ export function Tokens() {
                     <TableHead>Key</TableHead>
                     <TableHead>名称</TableHead>
                     <TableHead>所属用户</TableHead>
+                    <TableHead>分组</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead>额度</TableHead>
                     <TableHead>模型限制</TableHead>
@@ -278,6 +312,9 @@ export function Tokens() {
                         ) : (
                           <span className="text-sm text-muted-foreground">-</span>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        {t.group ? <Badge variant="outline">{t.group}</Badge> : <span className="text-xs text-muted-foreground">default</span>}
                       </TableCell>
                       <TableCell>{getStatusBadge(t)}</TableCell>
                       <TableCell>
@@ -320,7 +357,6 @@ export function Tokens() {
             </div>
           )}
 
-          {/* Pagination */}
           {total > 0 && (
             <div className="px-4 py-4 border-t flex items-center justify-between">
               <div className="text-sm text-muted-foreground">
@@ -338,7 +374,6 @@ export function Tokens() {
         </CardContent>
       </Card>
 
-      {/* User Analysis Dialog */}
       {selectedUser && (
         <UserAnalysisDialog
           open={analysisDialogOpen}

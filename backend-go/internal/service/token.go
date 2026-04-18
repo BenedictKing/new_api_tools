@@ -109,7 +109,11 @@ func (s *TokenService) ListTokens(params TokenListParams) (map[string]interface{
 		args = append(args, params.UserID)
 	}
 	if params.Group != "" {
-		conditions = append(conditions, fmt.Sprintf("t.%s = ?", groupCol))
+		if params.Group == "default" {
+			conditions = append(conditions, fmt.Sprintf("COALESCE(NULLIF(t.%s, ''), 'default') = ?", groupCol))
+		} else {
+			conditions = append(conditions, fmt.Sprintf("t.%s = ?", groupCol))
+		}
 		args = append(args, params.Group)
 	}
 
@@ -230,6 +234,28 @@ func (s *TokenService) ListTokens(params TokenListParams) (map[string]interface{
 		"page_size":   params.PageSize,
 		"total_pages": totalPages,
 	}, nil
+}
+
+// GetTokenGroups returns all distinct token groups with counts
+func (s *TokenService) GetTokenGroups() ([]map[string]interface{}, error) {
+	groupCol := s.groupCol()
+	query := s.db.RebindQuery(fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(%s, ''), 'default') as group_name,
+			COUNT(*) as token_count,
+			SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active_count
+		FROM tokens
+		WHERE deleted_at IS NULL
+		GROUP BY COALESCE(NULLIF(%s, ''), 'default')
+		ORDER BY token_count DESC`, groupCol, groupCol))
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		return []map[string]interface{}{}, nil
+	}
+	return rows, nil
 }
 
 // GetTokenStatistics returns aggregate token counts

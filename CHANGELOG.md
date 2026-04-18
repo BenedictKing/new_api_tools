@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- 对齐 backend-go 模型状态成功率口径，将 `type=2 && completion_tokens>0` 视为成功，并补充 `failure_count` / `empty_count` 统计。
+- 为模型状态监控补齐 `token-groups` 与 `config/sort` 路由，支持前端按令牌分组筛选模型与持久化排序配置。
+- 扩展令牌管理接口与前端页面，支持按分组筛选令牌并展示令牌所属分组。
+- 统一日志分析与用户风险分析中的成功请求统计口径，避免与模型状态页指标不一致。
+
 ### Added
 - **前端全量 API 层重构**：从 Swagger/OpenAPI 生成 TypeScript 类型，建立统一类型安全 API client 层
   - 新增 `frontend/src/api/schema.d.ts`：通过 `openapi-typescript` 从后端 `swagger.json` 自动生成（含 swagger2openapi 2.0→3.0 转换链路）

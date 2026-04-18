@@ -137,7 +137,7 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 	// Usage stats in window
 	statsQuery := s.db.RebindQuery(`
 		SELECT COUNT(*) as total_requests,
-			SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END) as success_requests,
+			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success_requests,
 			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure_requests,
 			COALESCE(SUM(quota), 0) as quota_used,
 			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
@@ -184,8 +184,9 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 	if totalRequests > 0 {
 		failureRate = float64(failureRequests) / float64(totalRequests)
 	}
-	if successRequests > 0 {
-		emptyRate = float64(emptyCount) / float64(successRequests)
+	nonFailureRequests := totalRequests - failureRequests
+	if nonFailureRequests > 0 {
+		emptyRate = float64(emptyCount) / float64(nonFailureRequests)
 	}
 
 	// Average use time
@@ -305,7 +306,7 @@ func (s *RiskMonitoringService) GetUserAnalysis(userID int64, windowSeconds int6
 	modelsQuery := s.db.RebindQuery(`
 		SELECT COALESCE(model_name, 'unknown') as model_name, COUNT(*) as requests,
 			COALESCE(SUM(quota), 0) as quota_used,
-			SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END) as success_requests,
+			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success_requests,
 			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure_requests,
 			SUM(CASE WHEN type = 2 AND completion_tokens = 0 THEN 1 ELSE 0 END) as empty_count
 		FROM logs

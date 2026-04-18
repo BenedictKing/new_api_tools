@@ -122,11 +122,16 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 	slotSeconds := twConfig.slotSeconds
 
 	// Single optimized query — aggregate by time slot using FLOOR division
-	// This reduces N queries to 1 query per model (matches Python backend)
+	// Success counting strategy:
+	// - type=2 and completion_tokens > 0 -> definite success
+	// - type=2 and completion_tokens = 0 -> empty response
+	// - type=5 -> explicit failure
 	slotQuery := s.db.RebindQuery(fmt.Sprintf(`
 		SELECT FLOOR((created_at - %d) / %d) as slot_idx,
 			COUNT(*) as total,
-			SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END) as success
+			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure,
+			SUM(CASE WHEN type = 2 AND completion_tokens = 0 THEN 1 ELSE 0 END) as empty
 		FROM logs
 		WHERE model_name = ?
 			AND created_at >= ? AND created_at < ?
@@ -141,6 +146,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 	type slotInfo struct {
 		total   int64
 		success int64
+		failure int64
+		empty   int64
 	}
 	slotMap := make(map[int64]*slotInfo, numSlots)
 
@@ -152,6 +159,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 				slotMap[idx] = &slotInfo{
 					total:   toInt64(row["total"]),
 					success: toInt64(row["success"]),
+					failure: toInt64(row["failure"]),
+					empty:   toInt64(row["empty"]),
 				}
 			}
 		}
@@ -161,6 +170,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 	slotData := make([]map[string]interface{}, 0, numSlots)
 	totalReqs := int64(0)
 	totalSuccess := int64(0)
+	totalFailure := int64(0)
+	totalEmpty := int64(0)
 
 	for i := 0; i < numSlots; i++ {
 		slotStart := startTime + int64(i)*slotSeconds
@@ -169,9 +180,13 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		si := slotMap[int64(i)]
 		slotTotal := int64(0)
 		slotSuccess := int64(0)
+		slotFailure := int64(0)
+		slotEmpty := int64(0)
 		if si != nil {
 			slotTotal = si.total
 			slotSuccess = si.success
+			slotFailure = si.failure
+			slotEmpty = si.empty
 		}
 
 		slotRate := float64(100)
@@ -185,12 +200,16 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 			"end_time":       slotEnd,
 			"total_requests": slotTotal,
 			"success_count":  slotSuccess,
+			"failure_count":  slotFailure,
+			"empty_count":    slotEmpty,
 			"success_rate":   roundRate(slotRate),
 			"status":         getStatusColor(slotRate, slotTotal),
 		})
 
 		totalReqs += slotTotal
 		totalSuccess += slotSuccess
+		totalFailure += slotFailure
+		totalEmpty += slotEmpty
 	}
 
 	overallRate := float64(100)
@@ -204,6 +223,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		"time_window":    window,
 		"total_requests": totalReqs,
 		"success_count":  totalSuccess,
+		"failure_count":  totalFailure,
+		"empty_count":    totalEmpty,
 		"success_rate":   roundRate(overallRate),
 		"current_status": getStatusColor(overallRate, totalReqs),
 		"slot_data":      slotData,
@@ -241,6 +262,84 @@ func (s *ModelStatusService) GetAllModelsStatus(window string) ([]map[string]int
 	}
 
 	return s.GetMultipleModelsStatus(names, window)
+}
+
+// GetTokenGroups returns token groups and their active models from abilities
+func (s *ModelStatusService) GetTokenGroups() ([]map[string]interface{}, error) {
+	cm := cache.GetManager()
+	var cached []map[string]interface{}
+	found, _ := cm.GetJSON("model_status:token_groups", &cached)
+	if found {
+		return cached, nil
+	}
+
+	groupCol := s.groupCol()
+	enabledCondition := s.enabledCondition("a")
+	query := s.db.RebindQuery(fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(a.%s, ''), 'default') as group_name,
+			COUNT(DISTINCT a.model) as model_count
+		FROM abilities a
+		INNER JOIN channels c ON c.id = a.channel_id
+		WHERE c.status = 1 AND %s AND a.model != ''
+		GROUP BY COALESCE(NULLIF(a.%s, ''), 'default')
+		ORDER BY model_count DESC`, groupCol, enabledCondition, groupCol))
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		empty := []map[string]interface{}{}
+		cm.Set("model_status:token_groups", empty, 5*time.Minute)
+		return empty, nil
+	}
+
+	results := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		groupName := fmt.Sprintf("%v", row["group_name"])
+
+		modelsQuery := s.db.RebindQuery(fmt.Sprintf(`
+			SELECT DISTINCT a.model as model_name
+			FROM abilities a
+			INNER JOIN channels c ON c.id = a.channel_id
+			WHERE c.status = 1 AND %s AND a.model != '' AND COALESCE(NULLIF(a.%s, ''), 'default') = ?
+			ORDER BY a.model`, enabledCondition, groupCol))
+
+		modelRows, err := s.db.Query(modelsQuery, groupName)
+		if err != nil {
+			return nil, err
+		}
+
+		modelNames := make([]string, 0, len(modelRows))
+		for _, mr := range modelRows {
+			if name, ok := mr["model_name"].(string); ok && name != "" {
+				modelNames = append(modelNames, name)
+			}
+		}
+
+		results = append(results, map[string]interface{}{
+			"group_name":  groupName,
+			"model_count": toInt64(row["model_count"]),
+			"models":      modelNames,
+		})
+	}
+
+	cm.Set("model_status:token_groups", results, 5*time.Minute)
+	return results, nil
+}
+
+func (s *ModelStatusService) groupCol() string {
+	if s.db.IsPostgres() {
+		return `"group"`
+	}
+	return "`group`"
+}
+
+func (s *ModelStatusService) enabledCondition(alias string) string {
+	if s.db.IsPostgres() {
+		return fmt.Sprintf("%s.enabled = TRUE", alias)
+	}
+	return fmt.Sprintf("%s.enabled = 1", alias)
 }
 
 // Config management via cache

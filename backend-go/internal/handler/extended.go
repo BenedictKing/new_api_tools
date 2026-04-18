@@ -958,6 +958,104 @@ func GetRefreshIntervalHandler(c *gin.Context) {
 	})
 }
 
+// GetTokenGroupsHandler 获取模型监控可用令牌分组
+// @Summary     获取模型监控令牌分组
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/token-groups [get]
+func GetTokenGroupsHandler(c *gin.Context) {
+	data, err := modelStatusService.GetTokenGroups()
+	if err != nil {
+		logger.Error("获取模型监控令牌分组失败", zap.Error(err))
+		c.JSON(200, gin.H{"success": false, "message": "获取令牌分组失败"})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "data": data})
+}
+
+// GetSortConfigHandler 获取排序配置
+// @Summary     获取模型状态排序配置
+// @Tags        模型状态
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200  {object}  object
+// @Router      /model-status/config/sort [get]
+func GetSortConfigHandler(c *gin.Context) {
+	config := modelStatusService.GetConfig()
+	c.JSON(200, gin.H{
+		"success":              true,
+		"sort_mode":            config["sort_mode"],
+		"custom_order":         config["custom_order"],
+		"available_sort_modes": service.AvailableSortModes,
+	})
+}
+
+// UpdateSortConfigHandler 更新排序配置
+// @Summary     更新模型状态排序配置
+// @Tags        模型状态
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body  body      object  true  "排序配置"
+// @Success     200   {object}  object
+// @Router      /model-status/config/sort [post]
+func UpdateSortConfigHandler(c *gin.Context) {
+	var raw map[string]json.RawMessage
+	if err := c.ShouldBindJSON(&raw); err != nil {
+		Error(c, 400, "参数错误")
+		return
+	}
+
+	var req struct {
+		SortMode    string   `json:"sort_mode"`
+		CustomOrder []string `json:"custom_order"`
+	}
+	if data, ok := raw["sort_mode"]; ok {
+		if err := json.Unmarshal(data, &req.SortMode); err != nil {
+			Error(c, 400, "参数错误")
+			return
+		}
+	}
+	customOrderExists := false
+	if data, ok := raw["custom_order"]; ok {
+		customOrderExists = true
+		if err := json.Unmarshal(data, &req.CustomOrder); err != nil {
+			Error(c, 400, "参数错误")
+			return
+		}
+	}
+	if req.SortMode == "" {
+		req.SortMode = "default"
+	}
+	config := modelStatusService.GetConfig()
+	if !stringInSlice(req.SortMode, service.AvailableSortModes) {
+		c.JSON(200, gin.H{
+			"success":              false,
+			"sort_mode":            config["sort_mode"],
+			"custom_order":         config["custom_order"],
+			"available_sort_modes": service.AvailableSortModes,
+			"message":              "无效的排序模式: " + req.SortMode,
+		})
+		return
+	}
+
+	modelStatusService.SetSortMode(req.SortMode)
+	if req.SortMode == "custom" && customOrderExists {
+		modelStatusService.SetCustomOrder(req.CustomOrder)
+	}
+
+	updatedConfig := modelStatusService.GetConfig()
+	c.JSON(200, gin.H{
+		"success":              true,
+		"sort_mode":            updatedConfig["sort_mode"],
+		"custom_order":         updatedConfig["custom_order"],
+		"available_sort_modes": service.AvailableSortModes,
+		"message":              "排序配置已保存",
+	})
+}
+
 // UpdateRefreshIntervalHandler 更新刷新间隔
 // @Summary     更新模型状态刷新间隔
 // @Tags        模型状态
@@ -1480,4 +1578,14 @@ func GetEmbedAllModelStatusHandler(c *gin.Context) {
 // @Router      /model-status/embed/config/selected [get]
 func GetEmbedSelectedModelsHandler(c *gin.Context) {
 	GetSelectedModelsHandler(c)
+}
+
+// GetEmbedTokenGroupsHandler [公开] 获取令牌分组
+// @Summary     [公开] 获取模型监控令牌分组
+// @Tags        模型状态(公开)
+// @Produce     json
+// @Success     200  {object}  object
+// @Router      /model-status/embed/token-groups [get]
+func GetEmbedTokenGroupsHandler(c *gin.Context) {
+	GetTokenGroupsHandler(c)
 }

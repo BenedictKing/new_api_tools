@@ -33,8 +33,8 @@ import (
 	"github.com/BenedictKing/new_api_tools/pkg/geoip"
 	"github.com/BenedictKing/new_api_tools/pkg/jwt"
 	"github.com/gin-gonic/gin"
-	ginSwagger "github.com/swaggo/gin-swagger"
 	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 )
 
@@ -294,6 +294,7 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 			{
 				modelStatus.GET("/models", handler.GetAvailableModels)
 				modelStatus.GET("/windows", handler.GetTimeWindowsHandler)
+				modelStatus.GET("/token-groups", handler.GetTokenGroupsHandler)
 				modelStatus.GET("/status/:model_name", handler.GetModelStatus)
 				modelStatus.POST("/status/batch", handler.BatchGetModelStatus)
 				modelStatus.GET("/status", handler.GetAllModelStatusHandler)
@@ -305,6 +306,8 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 				modelStatus.POST("/config/theme", handler.UpdateThemeConfigHandler)
 				modelStatus.GET("/config/refresh", handler.GetRefreshIntervalHandler)
 				modelStatus.POST("/config/refresh", handler.UpdateRefreshIntervalHandler)
+				modelStatus.GET("/config/sort", handler.GetSortConfigHandler)
+				modelStatus.POST("/config/sort", handler.UpdateSortConfigHandler)
 			}
 
 			// 系统管理
@@ -354,6 +357,7 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 		{
 			modelStatusEmbed.GET("/windows", handler.GetEmbedTimeWindowsHandler)
 			modelStatusEmbed.GET("/models", handler.GetEmbedAvailableModelsHandler)
+			modelStatusEmbed.GET("/token-groups", handler.GetEmbedTokenGroupsHandler)
 			modelStatusEmbed.GET("/status/:model_name", handler.GetEmbedModelStatusHandler)
 			modelStatusEmbed.POST("/status/batch", handler.BatchGetEmbedModelStatusHandler)
 			modelStatusEmbed.GET("/status", handler.GetEmbedAllModelStatusHandler)

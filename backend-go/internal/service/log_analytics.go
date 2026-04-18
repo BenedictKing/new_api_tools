@@ -176,7 +176,7 @@ func (s *LogAnalyticsService) GetModelStatistics(limit int) ([]map[string]interf
 	query := s.db.RebindQuery(`
 		SELECT model_name,
 			COUNT(*) as total_requests,
-			SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END) as success_count,
+			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success_count,
 			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure_count,
 			SUM(CASE WHEN type = 2 AND completion_tokens = 0 THEN 1 ELSE 0 END) as empty_count
 		FROM logs
@@ -201,8 +201,9 @@ func (s *LogAnalyticsService) GetModelStatistics(limit int) ([]map[string]interf
 			successRate = float64(success) / float64(total) * 100
 		}
 		emptyRate := float64(0)
-		if success > 0 {
-			emptyRate = float64(empty) / float64(success) * 100
+		nonFailure := total - toInt64(row["failure_count"])
+		if nonFailure > 0 {
+			emptyRate = float64(empty) / float64(nonFailure) * 100
 		}
 
 		row["success_rate"] = math.Round(successRate*100) / 100
