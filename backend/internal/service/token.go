@@ -42,6 +42,7 @@ type TokenListParams struct {
 	PageSize int
 	Status   string // "active", "disabled", "expired", ""
 	Name     string
+	Key      string // exact token key match (sk- prefix is stripped)
 	UserID   int64
 	Group    string
 	Expired  string // "yes", "no", ""
@@ -49,12 +50,13 @@ type TokenListParams struct {
 
 // TokenService handles token-related queries
 type TokenService struct {
-	db *database.Manager
+	db    *database.Manager
+	logDB *database.Manager
 }
 
 // NewTokenService creates a new TokenService
 func NewTokenService() *TokenService {
-	return &TokenService{db: database.Get()}
+	return &TokenService{db: database.Get(), logDB: database.GetLog()}
 }
 
 // keyCol returns the properly quoted column name for 'key' (reserved word)
@@ -103,6 +105,13 @@ func (s *TokenService) ListTokens(params TokenListParams) (map[string]interface{
 	if params.Name != "" {
 		conditions = append(conditions, "t.name LIKE ?")
 		args = append(args, "%"+params.Name+"%")
+	}
+	// Exact token-key lookup. NewAPI stores the key without the "sk-" prefix,
+	// so strip it (and any surrounding whitespace) before matching the unique
+	// idx_tokens_key index.
+	if key := strings.TrimPrefix(strings.TrimSpace(params.Key), "sk-"); key != "" {
+		conditions = append(conditions, fmt.Sprintf("t.%s = ?", keyCol))
+		args = append(args, key)
 	}
 	if params.UserID > 0 {
 		conditions = append(conditions, "t.user_id = ?")
@@ -177,20 +186,24 @@ func (s *TokenService) ListTokens(params TokenListParams) (map[string]interface{
 		tokenIDs = append(tokenIDs, toInt64(row["id"]))
 	}
 	if len(tokenIDs) > 0 {
+		// 90-day window so the query can hit idx_logs_created_token_ip instead of
+		// scanning each token's full history via idx_logs_token_id.
+		windowStart := time.Now().Unix() - 90*86400
 		placeholders := make([]string, 0, len(tokenIDs))
-		aggArgs := make([]interface{}, 0, len(tokenIDs))
+		aggArgs := make([]interface{}, 0, len(tokenIDs)+1)
+		aggArgs = append(aggArgs, windowStart)
 		for i, tokenID := range tokenIDs {
-			placeholders = append(placeholders, s.db.Placeholder(i+1))
+			placeholders = append(placeholders, s.logDB.Placeholder(i+2))
 			aggArgs = append(aggArgs, tokenID)
 		}
 
 		lastUsedQuery := fmt.Sprintf(`
 			SELECT token_id, MAX(created_at) as accessed_time
 			FROM logs
-			WHERE type IN (2, 5) AND token_id IN (%s)
-			GROUP BY token_id`, strings.Join(placeholders, ","))
+			WHERE created_at >= %s AND type IN (2, 5) AND token_id IN (%s)
+			GROUP BY token_id`, s.logDB.Placeholder(1), strings.Join(placeholders, ","))
 
-		lastUsedRows, err := s.db.Query(lastUsedQuery, aggArgs...)
+		lastUsedRows, err := s.logDB.Query(lastUsedQuery, aggArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +243,28 @@ func (s *TokenService) ListTokens(params TokenListParams) (map[string]interface{
 		"page_size":   params.PageSize,
 		"total_pages": totalPages,
 	}, nil
+}
+
+// GetTokenGroups 返回所有不同的令牌分组及其令牌数量
+func (s *TokenService) GetTokenGroups() ([]map[string]interface{}, error) {
+	groupCol := s.groupCol()
+	query := s.db.RebindQuery(fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(%s, ''), 'default') as group_name,
+			COUNT(*) as token_count,
+			SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active_count
+		FROM tokens
+		WHERE deleted_at IS NULL
+		GROUP BY COALESCE(NULLIF(%s, ''), 'default')
+		ORDER BY token_count DESC`, groupCol, groupCol))
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		return []map[string]interface{}{}, nil
+	}
+	return rows, nil
 }
 
 // GetTokenStatistics returns aggregate token counts
