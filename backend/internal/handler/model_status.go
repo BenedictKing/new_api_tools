@@ -12,8 +12,10 @@ import (
 func RegisterModelStatusRoutes(r *gin.RouterGroup) {
 	g := r.Group("/model-status")
 	{
+		g.GET("/windows", GetTimeWindows)
 		g.GET("/time-windows", GetTimeWindows)
 		g.GET("/models", GetAvailableModels)
+		g.GET("/status", GetAllModelsStatusHandler)
 		g.GET("/status/:model_name", GetSingleModelStatus)
 		g.POST("/status/multiple", GetMultipleModelsStatusHandler)
 		g.POST("/status/batch", GetMultipleModelsStatusHandler)
@@ -38,6 +40,13 @@ func RegisterModelStatusRoutes(r *gin.RouterGroup) {
 		g.PUT("/config/sort", SetSortModeConfig)
 		g.POST("/config/sort", SetSortModeConfig)
 		g.PUT("/config/custom-order", SetCustomOrderConfig)
+		g.GET("/config/groups", GetCustomGroupsConfig)
+		g.PUT("/config/groups", SetCustomGroupsConfig)
+		g.POST("/config/groups", SetCustomGroupsConfig)
+		g.GET("/config/site-title", GetSiteTitleConfig)
+		g.PUT("/config/site-title", SetSiteTitleConfig)
+		g.POST("/config/site-title", SetSiteTitleConfig)
+		g.GET("/token-groups", GetTokenGroupsForModelStatus)
 	}
 
 }
@@ -48,27 +57,33 @@ func RegisterModelStatusEmbedRoutes(r *gin.Engine) {
 	// Original embed path: /api/embed/model-status/...
 	g := r.Group("/api/embed/model-status")
 	{
+		g.GET("/windows", GetTimeWindows)
 		g.GET("/time-windows", GetTimeWindows)
 		g.GET("/models", GetAvailableModels)
+		g.GET("/status", GetAllModelsStatusHandler)
 		g.GET("/status/:model_name", GetSingleModelStatus)
 		g.POST("/status/multiple", GetMultipleModelsStatusHandler)
 		g.POST("/status/batch", GetMultipleModelsStatusHandler)
 		g.GET("/status/all", GetAllModelsStatusHandler)
 		g.GET("/config", GetEmbedConfig)
 		g.GET("/config/selected", GetSelectedModels)
+		g.GET("/token-groups", GetTokenGroupsForModelStatus)
 	}
 
 	// Compat embed path: /api/model-status/embed/... (used by embed.html frontend)
 	e := r.Group("/api/model-status/embed")
 	{
+		e.GET("/windows", GetTimeWindows)
 		e.GET("/time-windows", GetTimeWindows)
 		e.GET("/models", GetAvailableModels)
+		e.GET("/status", GetAllModelsStatusHandler)
 		e.GET("/status/:model_name", GetSingleModelStatus)
 		e.POST("/status/multiple", GetMultipleModelsStatusHandler)
 		e.POST("/status/batch", GetMultipleModelsStatusHandler)
 		e.GET("/status/all", GetAllModelsStatusHandler)
 		e.GET("/config", GetEmbedConfig)
 		e.GET("/config/selected", GetSelectedModels)
+		e.GET("/token-groups", GetTokenGroupsForModelStatus)
 	}
 }
 
@@ -159,6 +174,8 @@ func GetSelectedModels(c *gin.Context) {
 		"refresh_interval": config["refresh_interval"],
 		"sort_mode":        config["sort_mode"],
 		"custom_order":     config["custom_order"],
+		"custom_groups":    config["custom_groups"],
+		"site_title":       config["site_title"],
 	})
 }
 
@@ -368,4 +385,73 @@ func GetEmbedConfig(c *gin.Context) {
 	svc := service.NewModelStatusService()
 	config := svc.GetEmbedConfig()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": config})
+}
+
+// GET /config/groups
+func GetCustomGroupsConfig(c *gin.Context) {
+	svc := service.NewModelStatusService()
+	groups := svc.GetCustomGroups()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    groups,
+	})
+}
+
+// PUT /config/groups
+func SetCustomGroupsConfig(c *gin.Context) {
+	var req struct {
+		Groups []map[string]interface{} `json:"groups"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Invalid request", err.Error()))
+		return
+	}
+	svc := service.NewModelStatusService()
+	svc.SetCustomGroups(req.Groups)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    req.Groups,
+		"message": "Custom groups updated",
+	})
+}
+
+// GET /token-groups
+func GetTokenGroupsForModelStatus(c *gin.Context) {
+	svc := service.NewModelStatusService()
+	groups, err := svc.GetTokenGroups()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResp("QUERY_ERROR", err.Error(), ""))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    groups,
+	})
+}
+
+// GET /config/site-title
+func GetSiteTitleConfig(c *gin.Context) {
+	svc := service.NewModelStatusService()
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"site_title": svc.GetSiteTitle(),
+	})
+}
+
+// PUT /config/site-title
+func SetSiteTitleConfig(c *gin.Context) {
+	var req struct {
+		SiteTitle string `json:"site_title"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Invalid request", err.Error()))
+		return
+	}
+	svc := service.NewModelStatusService()
+	svc.SetSiteTitle(req.SiteTitle)
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"site_title": req.SiteTitle,
+		"message":    "Site title updated",
+	})
 }
