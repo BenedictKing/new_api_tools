@@ -127,6 +127,61 @@ var defaultAutoGroupConfig = map[string]interface{}{
 	"last_scan_time":        0,
 }
 
+const (
+	autoGroupLogsKey   = "auto_group:logs"
+	autoGroupLogsLimit = 1000
+)
+
+func loadAutoGroupLogsFromCache() []map[string]interface{} {
+	cm := cache.Get()
+	rdb := cm.RedisClient()
+	ctx := context.Background()
+
+	logStrings := []string{}
+	if rdb != nil {
+		if logs, err := rdb.LRange(ctx, autoGroupLogsKey, 0, -1).Result(); err == nil {
+			logStrings = logs
+		} else {
+			logger.L.Error(fmt.Sprintf("读取自动分组 Redis 日志失败: %v", err))
+		}
+	}
+
+	if len(logStrings) == 0 {
+		return loadLocalList(autoGroupLogsKey)
+	}
+
+	logs := make([]map[string]interface{}, 0, len(logStrings))
+	for _, logStr := range logStrings {
+		var entry map[string]interface{}
+		if json.Unmarshal([]byte(logStr), &entry) != nil {
+			continue
+		}
+		logs = append(logs, entry)
+	}
+	if len(logs) > 0 {
+		_ = saveLocalList(autoGroupLogsKey, logs, autoGroupLogsLimit)
+	}
+	return logs
+}
+
+func countAutoGroupLogs(action string) int64 {
+	total := int64(0)
+	for _, entry := range loadAutoGroupLogsFromCache() {
+		if action == "" {
+			total++
+			continue
+		}
+		if logAction, _ := entry["action"].(string); logAction == action {
+			affected := toInt64(entry["affected"])
+			if affected == 0 {
+				affected = 1
+			}
+			total += affected
+		}
+	}
+	return total
+}
+
 // 优化3: getConfigCached 请求级缓存，避免重复 Redis GET + JSON Unmarshal
 func (s *AutoGroupService) getConfigCached() map[string]interface{} {
 	if s.cachedConfig != nil {
@@ -146,6 +201,12 @@ func (s *AutoGroupService) GetConfig() map[string]interface{} {
 	cm := cache.Get()
 	var config map[string]interface{}
 	found, _ := cm.GetJSON("auto_group:config", &config)
+	if !found {
+		found = loadLocalConfig("auto_group:config", &config)
+		if found {
+			cm.Set("auto_group:config", config, 0)
+		}
+	}
 	if found && config != nil {
 		result := make(map[string]interface{})
 		for k, v := range defaultAutoGroupConfig {
@@ -172,6 +233,10 @@ func (s *AutoGroupService) SaveConfig(updates map[string]interface{}) bool {
 	cm := cache.Get()
 	if err := cm.Set("auto_group:config", config, 0); err != nil {
 		logger.L.Error(fmt.Sprintf("保存自动分组配置失败: %v", err))
+		return false
+	}
+	if err := saveLocalConfig("auto_group:config", config); err != nil {
+		logger.L.Error(fmt.Sprintf("持久化自动分组配置失败: %v", err))
 		return false
 	}
 	s.invalidateConfigCache()
@@ -303,28 +368,7 @@ func (s *AutoGroupService) GetStats() map[string]interface{} {
 		pendingCount = toInt64(row["cnt"])
 	}
 
-	// 优化4: 使用 Redis LLEN 获取总日志计数
-	totalAssigned := int64(0)
-	cm := cache.Get()
-	rdb := cm.RedisClient()
-	ctx := context.Background()
-
-	// Count assign logs from Redis list
-	logLen, err := rdb.LLen(ctx, "auto_group:logs").Result()
-	if err == nil && logLen > 0 {
-		// Sample to count "assign" actions (read all, they're capped at 1000)
-		logStrings, err := rdb.LRange(ctx, "auto_group:logs", 0, -1).Result()
-		if err == nil {
-			for _, logStr := range logStrings {
-				var entry map[string]interface{}
-				if json.Unmarshal([]byte(logStr), &entry) == nil {
-					if action, _ := entry["action"].(string); action == "assign" {
-						totalAssigned += toInt64(entry["affected"])
-					}
-				}
-			}
-		}
-	}
+	totalAssigned := countAutoGroupLogs("assign")
 
 	// Calculate next scan time
 	nextScanTime := int64(0)
@@ -892,27 +936,12 @@ func (s *AutoGroupService) BatchMoveUsers(userIDs []int64, targetGroup string) m
 	}
 }
 
-// GetLogs returns group assignment logs — 优化4: 使用 Redis List
+// GetLogs returns group assignment logs.
 func (s *AutoGroupService) GetLogs(page, pageSize int, action string, userID *int64) map[string]interface{} {
-	cm := cache.Get()
-	rdb := cm.RedisClient()
-	ctx := context.Background()
+	logs := loadAutoGroupLogsFromCache()
 
-	// Read all logs from Redis list
-	logStrings, err := rdb.LRange(ctx, "auto_group:logs", 0, -1).Result()
-	if err != nil {
-		logger.L.Error(fmt.Sprintf("读取自动分组日志失败: %v", err))
-		logStrings = []string{}
-	}
-
-	// Parse and filter
 	filtered := make([]map[string]interface{}, 0)
-	for _, logStr := range logStrings {
-		var entry map[string]interface{}
-		if json.Unmarshal([]byte(logStr), &entry) != nil {
-			continue
-		}
-
+	for _, entry := range logs {
 		if action != "" {
 			if logAction, ok := entry["action"].(string); !ok || logAction != action {
 				continue
@@ -953,28 +982,14 @@ func (s *AutoGroupService) GetLogs(page, pageSize int, action string, userID *in
 
 // RevertUser reverts a user's group assignment
 func (s *AutoGroupService) RevertUser(logID int) map[string]interface{} {
-	cm := cache.Get()
-	rdb := cm.RedisClient()
-	ctx := context.Background()
-
-	// Read all logs from Redis list
-	logStrings, err := rdb.LRange(ctx, "auto_group:logs", 0, -1).Result()
-	if err != nil {
-		return map[string]interface{}{
-			"success": false,
-			"message": fmt.Sprintf("读取日志失败: %v", err),
-		}
-	}
+	logs := loadAutoGroupLogsFromCache()
 
 	// Find the log entry by ID
 	var targetLog map[string]interface{}
-	for _, logStr := range logStrings {
-		var entry map[string]interface{}
-		if json.Unmarshal([]byte(logStr), &entry) == nil {
-			if toInt64(entry["id"]) == int64(logID) {
-				targetLog = entry
-				break
-			}
+	for _, entry := range logs {
+		if toInt64(entry["id"]) == int64(logID) {
+			targetLog = entry
+			break
 		}
 	}
 
@@ -1058,14 +1073,13 @@ func (s *AutoGroupService) RevertUser(logID int) map[string]interface{} {
 	}
 }
 
-// 优化4: addUserLog 使用 Redis LPUSH + LTRIM 原子操作
+// addUserLog writes to Redis when available and persists the capped list to SQLite.
 func (s *AutoGroupService) addUserLog(action string, userID int64, username, oldGroup, newGroup, source, operator string) {
 	cm := cache.Get()
 	rdb := cm.RedisClient()
 	ctx := context.Background()
 
-	// Get current log count for ID generation
-	logLen, _ := rdb.LLen(ctx, "auto_group:logs").Result()
+	logLen := countAutoGroupLogs("")
 
 	entry := map[string]interface{}{
 		"id":         logLen + 1,
@@ -1086,20 +1100,29 @@ func (s *AutoGroupService) addUserLog(action string, userID int64, username, old
 		return
 	}
 
-	// Atomic LPUSH + LTRIM
-	rdb.LPush(ctx, "auto_group:logs", string(data))
-	rdb.LTrim(ctx, "auto_group:logs", 0, 999) // Keep latest 1000
+	if rdb != nil {
+		if err := rdb.LPush(ctx, autoGroupLogsKey, string(data)).Err(); err != nil {
+			logger.L.Error(fmt.Sprintf("写入自动分组 Redis 日志失败: %v", err))
+		}
+		if err := rdb.LTrim(ctx, autoGroupLogsKey, 0, autoGroupLogsLimit-1).Err(); err != nil {
+			logger.L.Error(fmt.Sprintf("裁剪自动分组 Redis 日志失败: %v", err))
+		}
+	}
+	if err := prependLocalList(autoGroupLogsKey, []map[string]interface{}{entry}, autoGroupLogsLimit); err != nil {
+		logger.L.Error(fmt.Sprintf("持久化自动分组日志失败: %v", err))
+	}
 }
 
-// 优化1: addBatchLogs 批量写入日志
+// addBatchLogs writes batch logs to Redis when available and persists them to SQLite.
 func (s *AutoGroupService) addBatchLogs(action string, users []map[string]interface{}, oldGroup, newGroup, operator string) {
 	cm := cache.Get()
 	rdb := cm.RedisClient()
 	ctx := context.Background()
 
-	logLen, _ := rdb.LLen(ctx, "auto_group:logs").Result()
+	logLen := countAutoGroupLogs("")
 
-	pipe := rdb.Pipeline()
+	entries := make([]map[string]interface{}, 0, len(users))
+	payloads := make([]string, 0, len(users))
 	for i, user := range users {
 		entry := map[string]interface{}{
 			"id":         logLen + int64(i) + 1,
@@ -1113,15 +1136,30 @@ func (s *AutoGroupService) addBatchLogs(action string, users []map[string]interf
 			"affected":   1,
 			"created_at": time.Now().Unix(),
 		}
+		entries = append(entries, entry)
 		data, err := json.Marshal(entry)
 		if err != nil {
 			continue
 		}
-		pipe.LPush(ctx, "auto_group:logs", string(data))
+		payloads = append(payloads, string(data))
 	}
-	pipe.LTrim(ctx, "auto_group:logs", 0, 999)
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		logger.L.Error(fmt.Sprintf("批量写入自动分组日志失败: %v", err))
+	if rdb != nil && len(payloads) > 0 {
+		pipe := rdb.Pipeline()
+		for _, payload := range payloads {
+			pipe.LPush(ctx, autoGroupLogsKey, payload)
+		}
+		pipe.LTrim(ctx, autoGroupLogsKey, 0, autoGroupLogsLimit-1)
+		if _, err := pipe.Exec(ctx); err != nil {
+			logger.L.Error(fmt.Sprintf("批量写入自动分组 Redis 日志失败: %v", err))
+		}
+	}
+	if len(entries) > 0 {
+		newestFirst := make([]map[string]interface{}, 0, len(entries))
+		for i := len(entries) - 1; i >= 0; i-- {
+			newestFirst = append(newestFirst, entries[i])
+		}
+		if err := prependLocalList(autoGroupLogsKey, newestFirst, autoGroupLogsLimit); err != nil {
+			logger.L.Error(fmt.Sprintf("批量持久化自动分组日志失败: %v", err))
+		}
 	}
 }

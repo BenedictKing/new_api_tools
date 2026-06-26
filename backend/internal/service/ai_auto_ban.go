@@ -17,12 +17,13 @@ import (
 
 // AIAutoBanService handles AI-assisted automatic user banning
 type AIAutoBanService struct {
-	db *database.Manager
+	db    *database.Manager
+	logDB *database.Manager
 }
 
 // NewAIAutoBanService creates a new AIAutoBanService
 func NewAIAutoBanService() *AIAutoBanService {
-	return &AIAutoBanService{db: database.Get()}
+	return &AIAutoBanService{db: database.Get(), logDB: database.GetLog()}
 }
 
 // Default config
@@ -40,11 +41,71 @@ var defaultAIBanConfig = map[string]interface{}{
 	"excluded_groups":       []string{},
 }
 
+const (
+	aiBanAuditLogsKey   = "ai_ban:audit_logs"
+	aiBanWhitelistKey   = "ai_ban:whitelist"
+	aiBanAuditLogsLimit = 1000
+)
+
+func loadAIBanAuditLogs() []map[string]interface{} {
+	cm := cache.Get()
+	var allLogs []map[string]interface{}
+	found, _ := cm.GetJSON(aiBanAuditLogsKey, &allLogs)
+	if !found {
+		allLogs = loadLocalList(aiBanAuditLogsKey)
+		if len(allLogs) > 0 {
+			cm.Set(aiBanAuditLogsKey, allLogs, 0)
+		}
+	}
+	if allLogs == nil {
+		return []map[string]interface{}{}
+	}
+	return allLogs
+}
+
+func saveAIBanAuditLogs(logs []map[string]interface{}) error {
+	if logs == nil {
+		logs = []map[string]interface{}{}
+	}
+	cache.Get().Set(aiBanAuditLogsKey, logs, 0)
+	return saveLocalList(aiBanAuditLogsKey, logs, aiBanAuditLogsLimit)
+}
+
+func loadAIBanWhitelist() []int64 {
+	cm := cache.Get()
+	var whitelist []int64
+	found, _ := cm.GetJSON(aiBanWhitelistKey, &whitelist)
+	if !found {
+		whitelist = loadLocalInt64List(aiBanWhitelistKey)
+		if len(whitelist) > 0 {
+			cm.Set(aiBanWhitelistKey, whitelist, 0)
+		}
+	}
+	if whitelist == nil {
+		return []int64{}
+	}
+	return whitelist
+}
+
+func saveAIBanWhitelist(whitelist []int64) error {
+	if whitelist == nil {
+		whitelist = []int64{}
+	}
+	cache.Get().Set(aiBanWhitelistKey, whitelist, 0)
+	return saveLocalConfig(aiBanWhitelistKey, whitelist)
+}
+
 // GetConfig returns AI auto ban configuration with computed fields
 func (s *AIAutoBanService) GetConfig() map[string]interface{} {
 	cm := cache.Get()
 	var config map[string]interface{}
 	found, _ := cm.GetJSON("ai_ban:config", &config)
+	if !found {
+		found = loadLocalConfig("ai_ban:config", &config)
+		if found {
+			cm.Set("ai_ban:config", config, 0)
+		}
+	}
 	if !found {
 		config = make(map[string]interface{})
 		for k, v := range defaultAIBanConfig {
@@ -76,6 +137,9 @@ func (s *AIAutoBanService) SaveConfig(updates map[string]interface{}) error {
 	var config map[string]interface{}
 	found, _ := cm.GetJSON("ai_ban:config", &config)
 	if !found {
+		found = loadLocalConfig("ai_ban:config", &config)
+	}
+	if !found {
 		config = make(map[string]interface{})
 		for k, v := range defaultAIBanConfig {
 			config[k] = v
@@ -92,6 +156,9 @@ func (s *AIAutoBanService) SaveConfig(updates map[string]interface{}) error {
 	delete(config, "masked_api_key")
 
 	cm.Set("ai_ban:config", config, 0)
+	if err := saveLocalConfig("ai_ban:config", config); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -107,9 +174,7 @@ func (s *AIAutoBanService) ResetAPIHealth() map[string]interface{} {
 
 // GetAuditLogs returns AI audit logs
 func (s *AIAutoBanService) GetAuditLogs(limit, offset int, status string) map[string]interface{} {
-	cm := cache.Get()
-	var allLogs []map[string]interface{}
-	cm.GetJSON("ai_ban:audit_logs", &allLogs)
+	allLogs := loadAIBanAuditLogs()
 
 	// Filter by status if provided
 	filtered := allLogs
@@ -143,24 +208,38 @@ func (s *AIAutoBanService) GetAuditLogs(limit, offset int, status string) map[st
 
 // ClearAuditLogs clears all AI audit logs
 func (s *AIAutoBanService) ClearAuditLogs() map[string]interface{} {
-	cm := cache.Get()
-	cm.Set("ai_ban:audit_logs", []map[string]interface{}{}, 0)
+	if err := saveAIBanAuditLogs([]map[string]interface{}{}); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("清空审查记录失败: %v", err),
+		}
+	}
 	return map[string]interface{}{
 		"message": "审查记录已清空",
 	}
 }
 
+// groupCol returns the properly quoted column name for 'group' (reserved word).
+// Uses the log DB engine since 'group' only appears in logs-table queries.
+func (s *AIAutoBanService) groupCol() string {
+	if s.logDB.IsPG {
+		return `"group"`
+	}
+	return "`group`"
+}
+
 // GetAvailableGroups returns groups used in recent logs
 func (s *AIAutoBanService) GetAvailableGroups(days int) ([]map[string]interface{}, error) {
 	startTime := time.Now().Unix() - int64(days*86400)
-	query := s.db.RebindQuery(`
-		SELECT DISTINCT group_id as name, COUNT(*) as count
+	groupCol := s.groupCol()
+	query := s.logDB.RebindQuery(fmt.Sprintf(`
+		SELECT %s as name, COUNT(*) as count
 		FROM logs
-		WHERE created_at >= ? AND group_id IS NOT NULL AND group_id != ''
-		GROUP BY group_id
-		ORDER BY count DESC`)
+		WHERE created_at >= ? AND %s IS NOT NULL AND %s != ''
+		GROUP BY %s
+		ORDER BY count DESC`, groupCol, groupCol, groupCol, groupCol))
 
-	rows, err := s.db.Query(query, startTime)
+	rows, err := s.logDB.Query(query, startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +249,14 @@ func (s *AIAutoBanService) GetAvailableGroups(days int) ([]map[string]interface{
 // GetAvailableModelsForExclude returns models used in recent logs
 func (s *AIAutoBanService) GetAvailableModelsForExclude(days int) ([]map[string]interface{}, error) {
 	startTime := time.Now().Unix() - int64(days*86400)
-	query := s.db.RebindQuery(`
+	query := s.logDB.RebindQuery(`
 		SELECT DISTINCT model_name as name, COUNT(*) as count
 		FROM logs
 		WHERE created_at >= ? AND model_name IS NOT NULL AND model_name != ''
 		GROUP BY model_name
 		ORDER BY count DESC`)
 
-	rows, err := s.db.Query(query, startTime)
+	rows, err := s.logDB.Query(query, startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -200,23 +279,23 @@ func (s *AIAutoBanService) GetSuspiciousUsers(window string, limit int) ([]map[s
 		return cached, nil
 	}
 
-	// Find users with high failure rates or unusual patterns
-	query := s.db.RebindQuery(`
-		SELECT l.user_id, COALESCE(u.username, '') as username,
+	// Find users with high failure rates or unusual patterns.
+	// logs 自带 username，无需 JOIN users（兼容日志独立库）。
+	query := s.logDB.RebindQuery(`
+		SELECT l.user_id, COALESCE(l.username, '') as username,
 			COUNT(*) as total_requests,
 			SUM(CASE WHEN l.type = 5 THEN 1 ELSE 0 END) as failure_count,
 			COALESCE(SUM(l.quota), 0) as total_quota,
 			COUNT(DISTINCT l.ip) as unique_ips,
 			COUNT(DISTINCT l.model_name) as unique_models
 		FROM logs l
-		LEFT JOIN users u ON l.user_id = u.id
 		WHERE l.created_at >= ? AND l.type IN (2, 5)
-		GROUP BY l.user_id, u.username
+		GROUP BY l.user_id, l.username
 		HAVING COUNT(*) >= 10
 		ORDER BY failure_count DESC, total_requests DESC
 		LIMIT ?`)
 
-	rows, err := s.db.Query(query, startTime, limit)
+	rows, err := s.logDB.Query(query, startTime, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -556,9 +635,7 @@ func (s *AIAutoBanService) TestModel(baseURL, apiKey, model string) map[string]i
 
 // GetWhitelist returns the whitelist user IDs
 func (s *AIAutoBanService) GetWhitelist() map[string]interface{} {
-	cm := cache.Get()
-	var whitelist []int64
-	cm.GetJSON("ai_ban:whitelist", &whitelist)
+	whitelist := loadAIBanWhitelist()
 
 	items := make([]map[string]interface{}, 0)
 	if len(whitelist) > 0 {
@@ -584,9 +661,7 @@ func (s *AIAutoBanService) GetWhitelist() map[string]interface{} {
 
 // AddToWhitelist adds a user to the whitelist
 func (s *AIAutoBanService) AddToWhitelist(userID int64) map[string]interface{} {
-	cm := cache.Get()
-	var whitelist []int64
-	cm.GetJSON("ai_ban:whitelist", &whitelist)
+	whitelist := loadAIBanWhitelist()
 
 	for _, uid := range whitelist {
 		if uid == userID {
@@ -594,15 +669,15 @@ func (s *AIAutoBanService) AddToWhitelist(userID int64) map[string]interface{} {
 		}
 	}
 	whitelist = append(whitelist, userID)
-	cm.Set("ai_ban:whitelist", whitelist, 0)
+	if err := saveAIBanWhitelist(whitelist); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("保存白名单失败: %v", err)}
+	}
 	return map[string]interface{}{"message": fmt.Sprintf("用户 %d 已加入白名单", userID)}
 }
 
 // RemoveFromWhitelist removes a user from the whitelist
 func (s *AIAutoBanService) RemoveFromWhitelist(userID int64) map[string]interface{} {
-	cm := cache.Get()
-	var whitelist []int64
-	cm.GetJSON("ai_ban:whitelist", &whitelist)
+	whitelist := loadAIBanWhitelist()
 
 	newList := make([]int64, 0)
 	for _, uid := range whitelist {
@@ -610,7 +685,9 @@ func (s *AIAutoBanService) RemoveFromWhitelist(userID int64) map[string]interfac
 			newList = append(newList, uid)
 		}
 	}
-	cm.Set("ai_ban:whitelist", newList, 0)
+	if err := saveAIBanWhitelist(newList); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("保存白名单失败: %v", err)}
+	}
 	return map[string]interface{}{"message": fmt.Sprintf("用户 %d 已从白名单移除", userID)}
 }
 

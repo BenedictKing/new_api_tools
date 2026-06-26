@@ -30,6 +30,14 @@ type Config struct {
 	// Database
 	SQLDSN         string         `json:"sql_dsn"`
 	DatabaseEngine DatabaseEngine `json:"database_engine"`
+	DBMaxOpenConns int            `json:"db_max_open_conns"`
+	DBMaxIdleConns int            `json:"db_max_idle_conns"`
+
+	// Log database (optional). NewAPI 的 fork 可通过 LOG_SQL_DSN 把 logs 表
+	// 分离到独立数据库；本工具需读取该库才能看到实时日志/流量。
+	// 为空时日志库 == 主库（行为与上游一致，完全向后兼容）。
+	LogSQLDSN         string         `json:"log_sql_dsn"`
+	LogDatabaseEngine DatabaseEngine `json:"log_database_engine"`
 
 	// Redis
 	RedisConnString string `json:"redis_conn_string"`
@@ -64,11 +72,16 @@ func Load() *Config {
 	cfg = &Config{
 		// Server defaults (support both SERVER_PORT/PORT and SERVER_HOST/HOST)
 		ServerPort: getEnvIntMulti([]string{"SERVER_PORT", "PORT"}, 8000),
-		ServerHost: getEnvStrMulti([]string{"SERVER_HOST", "HOST"}, "0.0.0.0"),
+		ServerHost: getEnvStrMulti([]string{"SERVER_HOST", "HOST"}, "127.0.0.1"),
 		TimeZone:   getEnvStrMulti([]string{"TIMEZONE", "TZ"}, "Asia/Shanghai"),
 
 		// Database
-		SQLDSN: getEnvStr("SQL_DSN", ""),
+		SQLDSN:         getEnvStr("SQL_DSN", ""),
+		DBMaxOpenConns: getEnvInt("DB_MAX_OPEN_CONNS", 50),
+		DBMaxIdleConns: getEnvInt("DB_MAX_IDLE_CONNS", 15),
+
+		// Log database (optional, see field doc). Empty → falls back to main DB.
+		LogSQLDSN: getEnvStr("LOG_SQL_DSN", ""),
 
 		// Redis
 		RedisConnString: getEnvStr("REDIS_CONN_STRING", ""),
@@ -107,6 +120,13 @@ func Load() *Config {
 
 	// Auto-detect database engine from DSN
 	cfg.DatabaseEngine = detectEngine(cfg.SQLDSN)
+
+	// Log database engine: detect from LOG_SQL_DSN if set, else mirror main DB.
+	if cfg.LogSQLDSN != "" {
+		cfg.LogDatabaseEngine = detectEngine(cfg.LogSQLDSN)
+	} else {
+		cfg.LogDatabaseEngine = cfg.DatabaseEngine
+	}
 
 	// Generate random JWT secret if not explicitly configured
 	if cfg.JWTSecretKey == "" {
@@ -233,6 +253,35 @@ func (c *Config) DriverName() string {
 	}
 }
 
+// HasSeparateLogDB reports whether a dedicated log database is configured
+// (LOG_SQL_DSN set and different from the main DSN).
+func (c *Config) HasSeparateLogDB() bool {
+	return c.LogSQLDSN != "" && c.LogSQLDSN != c.SQLDSN
+}
+
+// LogDSN returns a driver-compatible DSN for the log database.
+// Falls back to the main DSN when LOG_SQL_DSN is not configured.
+func (c *Config) LogDSN() string {
+	dsn := c.LogSQLDSN
+	if dsn == "" {
+		return c.DSN()
+	}
+	if strings.HasPrefix(dsn, "mysql://") {
+		dsn = strings.TrimPrefix(dsn, "mysql://")
+	}
+	return dsn
+}
+
+// LogDriverName returns the database driver name for the log database.
+func (c *Config) LogDriverName() string {
+	switch c.LogDatabaseEngine {
+	case PostgreSQL:
+		return "pgx"
+	default:
+		return "mysql"
+	}
+}
+
 // ServerAddr returns the full server address
 func (c *Config) ServerAddr() string {
 	return fmt.Sprintf("%s:%d", c.ServerHost, c.ServerPort)
@@ -251,6 +300,18 @@ func getEnvInt(key string, defaultVal int) int {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return defaultVal
+}
+
+func getEnvBool(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "1", "true", "yes", "y", "on":
+			return true
+		case "0", "false", "no", "n", "off":
+			return false
 		}
 	}
 	return defaultVal

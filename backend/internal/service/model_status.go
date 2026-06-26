@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -13,7 +14,7 @@ import (
 var (
 	AvailableTimeWindows = []string{"1h", "6h", "12h", "24h"}
 	DefaultTimeWindow    = "24h"
-	AvailableThemes = []string{
+	AvailableThemes      = []string{
 		"daylight", "obsidian", "minimal", "neon", "forest", "ocean", "terminal",
 		"cupertino", "material", "openai", "anthropic", "vercel", "linear",
 		"stripe", "github", "discord", "tesla",
@@ -64,12 +65,13 @@ func roundRate(rate float64) float64 {
 
 // ModelStatusService handles model availability monitoring
 type ModelStatusService struct {
-	db *database.Manager
+	db    *database.Manager
+	logDB *database.Manager
 }
 
 // NewModelStatusService creates a new ModelStatusService
 func NewModelStatusService() *ModelStatusService {
-	return &ModelStatusService{db: database.Get()}
+	return &ModelStatusService{db: database.Get(), logDB: database.GetLog()}
 }
 
 // GetAvailableModels returns all models with 24h request counts
@@ -83,14 +85,14 @@ func (s *ModelStatusService) GetAvailableModels() ([]map[string]interface{}, err
 
 	startTime := time.Now().Unix() - 86400
 
-	query := s.db.RebindQuery(`
+	query := s.logDB.RebindQuery(`
 		SELECT model_name, COUNT(*) as request_count_24h
 		FROM logs
 		WHERE type IN (2, 5) AND model_name != '' AND created_at >= ?
 		GROUP BY model_name
 		ORDER BY request_count_24h DESC`)
 
-	rows, err := s.db.Query(query, startTime)
+	rows, err := s.logDB.Query(query, startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -123,10 +125,18 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 
 	// Single optimized query — aggregate by time slot using FLOOR division
 	// This reduces N queries to 1 query per model (matches Python backend)
-	slotQuery := s.db.RebindQuery(fmt.Sprintf(`
+	//
+	// Success counting strategy:
+	//   - type=2 with completion_tokens > 0 → definite success
+	//   - type=2 with completion_tokens = 0 → empty response (likely failure)
+	//   - type=5 → explicit failure (if NewAPI version supports it)
+	// This ensures correct success rate even when NewAPI doesn't log type=5 failures.
+	slotQuery := s.logDB.RebindQuery(fmt.Sprintf(`
 		SELECT FLOOR((created_at - %d) / %d) as slot_idx,
 			COUNT(*) as total,
-			SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END) as success
+			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure,
+			SUM(CASE WHEN type = 2 AND completion_tokens = 0 THEN 1 ELSE 0 END) as empty
 		FROM logs
 		WHERE model_name = ?
 			AND created_at >= ? AND created_at < ?
@@ -135,12 +145,14 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		startTime, slotSeconds,
 		startTime, slotSeconds))
 
-	rows, _ := s.db.Query(slotQuery, modelName, startTime, now)
+	rows, _ := s.logDB.Query(slotQuery, modelName, startTime, now)
 
 	// Initialize all slots with zeros
 	type slotInfo struct {
 		total   int64
 		success int64
+		failure int64
+		empty   int64
 	}
 	slotMap := make(map[int64]*slotInfo, numSlots)
 
@@ -152,6 +164,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 				slotMap[idx] = &slotInfo{
 					total:   toInt64(row["total"]),
 					success: toInt64(row["success"]),
+					failure: toInt64(row["failure"]),
+					empty:   toInt64(row["empty"]),
 				}
 			}
 		}
@@ -161,6 +175,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 	slotData := make([]map[string]interface{}, 0, numSlots)
 	totalReqs := int64(0)
 	totalSuccess := int64(0)
+	totalFailure := int64(0)
+	totalEmpty := int64(0)
 
 	for i := 0; i < numSlots; i++ {
 		slotStart := startTime + int64(i)*slotSeconds
@@ -169,9 +185,13 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		si := slotMap[int64(i)]
 		slotTotal := int64(0)
 		slotSuccess := int64(0)
+		slotFailure := int64(0)
+		slotEmpty := int64(0)
 		if si != nil {
 			slotTotal = si.total
 			slotSuccess = si.success
+			slotFailure = si.failure
+			slotEmpty = si.empty
 		}
 
 		slotRate := float64(100)
@@ -185,12 +205,16 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 			"end_time":       slotEnd,
 			"total_requests": slotTotal,
 			"success_count":  slotSuccess,
+			"failure_count":  slotFailure,
+			"empty_count":    slotEmpty,
 			"success_rate":   roundRate(slotRate),
 			"status":         getStatusColor(slotRate, slotTotal),
 		})
 
 		totalReqs += slotTotal
 		totalSuccess += slotSuccess
+		totalFailure += slotFailure
+		totalEmpty += slotEmpty
 	}
 
 	overallRate := float64(100)
@@ -204,6 +228,8 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		"time_window":    window,
 		"total_requests": totalReqs,
 		"success_count":  totalSuccess,
+		"failure_count":  totalFailure,
+		"empty_count":    totalEmpty,
 		"success_rate":   roundRate(overallRate),
 		"current_status": getStatusColor(overallRate, totalReqs),
 		"slot_data":      slotData,
@@ -243,6 +269,132 @@ func (s *ModelStatusService) GetAllModelsStatus(window string) ([]map[string]int
 	return s.GetMultipleModelsStatus(names, window)
 }
 
+// GetTokenGroups 返回令牌分组列表及其关联的模型（基于 abilities 表）
+func (s *ModelStatusService) GetTokenGroups() ([]map[string]interface{}, error) {
+	cm := cache.Get()
+	var cached []map[string]interface{}
+	found, _ := cm.GetJSON("model_status:token_groups", &cached)
+	if found {
+		return cached, nil
+	}
+
+	// 从 abilities 表获取分组及其模型列表（abilities 表定义了 group-model-channel 的映射）
+	// 注意：不再过滤 c.status = 1，否则 ManuallyDisabled / AutoDisabled 的渠道会
+	// 让分组里临时不可用的模型从下拉中消失，与用户"这个分组本来就有这个模型"的心智不符。
+	groupCol := s.getGroupCol()
+	query := s.db.RebindQuery(fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(a.%s, ''), 'default') as group_name,
+			COUNT(DISTINCT a.model) as model_count
+		FROM abilities a
+		INNER JOIN channels c ON c.id = a.channel_id
+		GROUP BY COALESCE(NULLIF(a.%s, ''), 'default')
+		ORDER BY model_count DESC`, groupCol, groupCol))
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+
+	// 一次性读出 NewAPI 的分组描述（UserUsableGroups）和倍率（GroupRatio）
+	descMap, ratioMap := s.loadGroupMetadata()
+
+	// 为每个分组获取其模型列表
+	results := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		groupName := fmt.Sprintf("%v", row["group_name"])
+
+		modelsQuery := s.db.RebindQuery(fmt.Sprintf(`
+			SELECT DISTINCT a.model as model_name
+			FROM abilities a
+			INNER JOIN channels c ON c.id = a.channel_id
+			WHERE COALESCE(NULLIF(a.%s, ''), 'default') = ?
+			ORDER BY a.model`, groupCol))
+
+		modelRows, err := s.db.Query(modelsQuery, groupName)
+		if err != nil {
+			continue
+		}
+
+		modelNames := make([]string, 0, len(modelRows))
+		for _, mr := range modelRows {
+			if name, ok := mr["model_name"].(string); ok && name != "" {
+				modelNames = append(modelNames, name)
+			}
+		}
+
+		entry := map[string]interface{}{
+			"group_name":  groupName,
+			"model_count": row["model_count"],
+			"models":      modelNames,
+		}
+		if d, ok := descMap[groupName]; ok && d != "" && d != groupName {
+			entry["description"] = d
+		}
+		if r, ok := ratioMap[groupName]; ok {
+			entry["ratio"] = r
+		}
+		results = append(results, entry)
+	}
+
+	cm.Set("model_status:token_groups", results, 5*time.Minute)
+	return results, nil
+}
+
+// loadGroupMetadata 一次性从 NewAPI 的 options 表读出分组描述和倍率配置。
+// 返回两张 map，缺失时为 nil 不影响主流程。
+func (s *ModelStatusService) loadGroupMetadata() (descMap map[string]string, ratioMap map[string]float64) {
+	descMap = map[string]string{}
+	ratioMap = map[string]float64{}
+
+	keyCol := `"key"`
+	if !s.db.IsPG {
+		keyCol = "`key`"
+	}
+	query := s.db.RebindQuery(fmt.Sprintf(
+		`SELECT %s as opt_key, value FROM options WHERE %s IN ('UserUsableGroups', 'GroupRatio')`,
+		keyCol, keyCol))
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		key := fmt.Sprintf("%v", row["opt_key"])
+		val, _ := row["value"].(string)
+		if val == "" {
+			continue
+		}
+		switch key {
+		case "UserUsableGroups":
+			_ = json.Unmarshal([]byte(val), &descMap)
+		case "GroupRatio":
+			// GroupRatio 的值可能是 number 或 string number，先按 number 解
+			raw := map[string]interface{}{}
+			if err := json.Unmarshal([]byte(val), &raw); err == nil {
+				for k, v := range raw {
+					switch n := v.(type) {
+					case float64:
+						ratioMap[k] = n
+					case json.Number:
+						if f, err := n.Float64(); err == nil {
+							ratioMap[k] = f
+						}
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+// getGroupCol 返回正确引用的 group 列名（group 是保留字）
+func (s *ModelStatusService) getGroupCol() string {
+	if s.db.IsPG {
+		return `"group"`
+	}
+	return "`group`"
+}
+
 // Config management via cache
 
 // GetSelectedModels returns selected model names from cache
@@ -253,6 +405,19 @@ func (s *ModelStatusService) GetSelectedModels() []string {
 	if found {
 		return models
 	}
+	var config map[string]interface{}
+	if loadLocalConfig("model_status:config", &config) {
+		if raw, ok := config["selected_models"].([]interface{}); ok {
+			models = make([]string, 0, len(raw))
+			for _, item := range raw {
+				if model := toString(item); model != "" {
+					models = append(models, model)
+				}
+			}
+			cm.Set("model_status:selected_models", models, 0)
+			return models
+		}
+	}
 	return []string{}
 }
 
@@ -260,22 +425,33 @@ func (s *ModelStatusService) GetSelectedModels() []string {
 func (s *ModelStatusService) SetSelectedModels(models []string) {
 	cm := cache.Get()
 	cm.Set("model_status:selected_models", models, 0) // no expiry
+	config := s.GetConfig()
+	config["selected_models"] = models
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // GetConfig returns all model status config
 func (s *ModelStatusService) GetConfig() map[string]interface{} {
 	cm := cache.Get()
+	localConfig := map[string]interface{}{}
+	loadLocalConfig("model_status:config", &localConfig)
 
 	var timeWindow string
 	found, _ := cm.GetJSON("model_status:time_window", &timeWindow)
 	if !found {
-		timeWindow = DefaultTimeWindow
+		timeWindow = toString(localConfig["time_window"])
+		if timeWindow == "" {
+			timeWindow = DefaultTimeWindow
+		}
 	}
 
 	var theme string
 	found, _ = cm.GetJSON("model_status:theme", &theme)
 	if !found {
-		theme = DefaultTheme
+		theme = toString(localConfig["theme"])
+		if theme == "" {
+			theme = DefaultTheme
+		}
 	}
 	// Map legacy theme names to valid ones
 	if mapped, ok := LegacyThemeMap[theme]; ok {
@@ -285,17 +461,44 @@ func (s *ModelStatusService) GetConfig() map[string]interface{} {
 	var refreshInterval int
 	found, _ = cm.GetJSON("model_status:refresh_interval", &refreshInterval)
 	if !found {
-		refreshInterval = 60
+		refreshInterval = int(toInt64(localConfig["refresh_interval"]))
+		if refreshInterval == 0 {
+			refreshInterval = 60
+		}
 	}
 
 	var sortMode string
 	found, _ = cm.GetJSON("model_status:sort_mode", &sortMode)
 	if !found {
-		sortMode = "default"
+		sortMode = toString(localConfig["sort_mode"])
+		if sortMode == "" {
+			sortMode = "default"
+		}
 	}
 
 	var customOrder []string
-	cm.GetJSON("model_status:custom_order", &customOrder)
+	if found, _ := cm.GetJSON("model_status:custom_order", &customOrder); !found {
+		if raw, ok := localConfig["custom_order"].([]interface{}); ok {
+			for _, item := range raw {
+				if v := toString(item); v != "" {
+					customOrder = append(customOrder, v)
+				}
+			}
+		}
+	}
+
+	var customGroups []map[string]interface{}
+	found, _ = cm.GetJSON("model_status:custom_groups", &customGroups)
+	if !found {
+		customGroups = []map[string]interface{}{}
+		if raw, ok := localConfig["custom_groups"].([]interface{}); ok {
+			for _, item := range raw {
+				if group, ok := item.(map[string]interface{}); ok {
+					customGroups = append(customGroups, group)
+				}
+			}
+		}
+	}
 
 	return map[string]interface{}{
 		"time_window":      timeWindow,
@@ -304,6 +507,8 @@ func (s *ModelStatusService) GetConfig() map[string]interface{} {
 		"sort_mode":        sortMode,
 		"custom_order":     customOrder,
 		"selected_models":  s.GetSelectedModels(),
+		"custom_groups":    customGroups,
+		"site_title":       s.GetSiteTitle(),
 	}
 }
 
@@ -311,30 +516,101 @@ func (s *ModelStatusService) GetConfig() map[string]interface{} {
 func (s *ModelStatusService) SetTimeWindow(window string) {
 	cm := cache.Get()
 	cm.Set("model_status:time_window", window, 0)
+	config := s.GetConfig()
+	config["time_window"] = window
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // SetTheme saves theme to cache
 func (s *ModelStatusService) SetTheme(theme string) {
 	cm := cache.Get()
 	cm.Set("model_status:theme", theme, 0)
+	config := s.GetConfig()
+	config["theme"] = theme
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // SetRefreshInterval saves refresh interval to cache
 func (s *ModelStatusService) SetRefreshInterval(interval int) {
 	cm := cache.Get()
 	cm.Set("model_status:refresh_interval", interval, 0)
+	config := s.GetConfig()
+	config["refresh_interval"] = interval
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // SetSortMode saves sort mode to cache
 func (s *ModelStatusService) SetSortMode(mode string) {
 	cm := cache.Get()
 	cm.Set("model_status:sort_mode", mode, 0)
+	config := s.GetConfig()
+	config["sort_mode"] = mode
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // SetCustomOrder saves custom order to cache
 func (s *ModelStatusService) SetCustomOrder(order []string) {
 	cm := cache.Get()
 	cm.Set("model_status:custom_order", order, 0)
+	config := s.GetConfig()
+	config["custom_order"] = order
+	_ = saveLocalConfig("model_status:config", config)
+}
+
+// GetCustomGroups returns custom model groups from cache
+func (s *ModelStatusService) GetCustomGroups() []map[string]interface{} {
+	cm := cache.Get()
+	var groups []map[string]interface{}
+	found, _ := cm.GetJSON("model_status:custom_groups", &groups)
+	if found {
+		return groups
+	}
+	config := map[string]interface{}{}
+	if loadLocalConfig("model_status:config", &config) {
+		if raw, ok := config["custom_groups"].([]interface{}); ok {
+			groups = make([]map[string]interface{}, 0, len(raw))
+			for _, item := range raw {
+				if group, ok := item.(map[string]interface{}); ok {
+					groups = append(groups, group)
+				}
+			}
+			return groups
+		}
+	}
+	return []map[string]interface{}{}
+}
+
+// SetCustomGroups saves custom model groups to cache
+func (s *ModelStatusService) SetCustomGroups(groups []map[string]interface{}) {
+	cm := cache.Get()
+	cm.Set("model_status:custom_groups", groups, 0) // no expiry
+	config := s.GetConfig()
+	config["custom_groups"] = groups
+	_ = saveLocalConfig("model_status:config", config)
+}
+
+// GetSiteTitle returns the custom site title
+func (s *ModelStatusService) GetSiteTitle() string {
+	cm := cache.Get()
+	var title string
+	found, _ := cm.GetJSON("model_status:site_title", &title)
+	if found {
+		return title
+	}
+	config := map[string]interface{}{}
+	if loadLocalConfig("model_status:config", &config) {
+		return toString(config["site_title"])
+	}
+	return ""
+}
+
+// SetSiteTitle saves the custom site title
+func (s *ModelStatusService) SetSiteTitle(title string) {
+	cm := cache.Get()
+	cm.Set("model_status:site_title", title, 0)
+	config := s.GetConfig()
+	config["site_title"] = title
+	_ = saveLocalConfig("model_status:config", config)
 }
 
 // GetEmbedConfig returns embed page configuration
