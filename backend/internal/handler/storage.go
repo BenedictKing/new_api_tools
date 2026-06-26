@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/new-api-tools/backend/internal/cache"
+	"github.com/new-api-tools/backend/internal/database"
 	"github.com/new-api-tools/backend/internal/models"
 )
 
@@ -33,8 +35,12 @@ func RegisterStorageRoutes(r *gin.RouterGroup) {
 
 // GET /api/storage/config
 func GetAllConfigs(c *gin.Context) {
-	cm := cache.Get()
-	configs, err := cm.GetAllHashFields("app:config")
+	store := database.GetLocalStore()
+	configs, err := store.AllConfig(c.Request.Context())
+	if err != nil || len(configs) == 0 {
+		cm := cache.Get()
+		configs, err = cm.GetAllHashFields("app:config")
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": map[string]interface{}{}})
 		return
@@ -47,8 +53,12 @@ func GetConfig(c *gin.Context) {
 	key := c.Param("key")
 	cm := cache.Get()
 
-	value, err := cm.HashGet("app:config", key)
-	if err != nil || value == "" {
+	value, found, err := database.GetLocalStore().GetConfig(c.Request.Context(), key)
+	if err != nil || !found {
+		value, err = cm.HashGet("app:config", key)
+		found = err == nil && value != ""
+	}
+	if err != nil || !found {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "Configuration key '" + key + "' not found",
@@ -75,6 +85,16 @@ func SetConfig(c *gin.Context) {
 		return
 	}
 
+	data, err := json.Marshal(req.Value)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Value must be JSON serializable", err.Error()))
+		return
+	}
+	if err := database.GetLocalStore().SetConfig(c.Request.Context(), req.Key, string(data)); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResp("STORAGE_ERROR", "Failed to save config", err.Error()))
+		return
+	}
+
 	cm := cache.Get()
 	if err := cm.HashSet("app:config", req.Key, req.Value); err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResp("STORAGE_ERROR", "Failed to save config", err.Error()))
@@ -93,7 +113,14 @@ func DeleteConfig(c *gin.Context) {
 	key := c.Param("key")
 	cm := cache.Get()
 
-	deleted, err := cm.HashDelete("app:config", key)
+	deleted, err := database.GetLocalStore().DeleteConfig(c.Request.Context(), key)
+	if err == nil {
+		cacheDeleted, cacheErr := cm.HashDelete("app:config", key)
+		if cacheErr != nil {
+			err = cacheErr
+		}
+		deleted = deleted || cacheDeleted
+	}
 	if err != nil || !deleted {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

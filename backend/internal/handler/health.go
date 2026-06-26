@@ -10,6 +10,7 @@ import (
 
 // RegisterHealthRoutes registers health check endpoints
 func RegisterHealthRoutes(r *gin.Engine) {
+	r.GET("/health", HealthCheck)
 	r.GET("/api/health", HealthCheck)
 	r.GET("/api/health/db", DatabaseHealthCheck)
 }
