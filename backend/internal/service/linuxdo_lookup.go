@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,8 +86,7 @@ func (s *LinuxDoLookupService) LookupUsername(linuxDoID string) (*LookupResult, 
 	// 1. Check Redis cache
 	cacheKey := ldCachePrefix + linuxDoID
 	if cm := cache.Get(); cm != nil {
-		ctx := context.Background()
-		if cached, err := cm.RedisClient().Get(ctx, cacheKey).Result(); err == nil && cached != "" {
+		if cached, found, err := cm.GetString(cacheKey); err == nil && found && cached != "" {
 			logger.L.Debug(fmt.Sprintf("[LinuxDoLookup] 缓存命中: id=%s → %s", linuxDoID, cached))
 			return &LookupResult{
 				LinuxDoID:  linuxDoID,
@@ -198,8 +196,7 @@ func (s *LinuxDoLookupService) LookupUsername(linuxDoID string) (*LookupResult, 
 
 			// Cache the result
 			if cm := cache.Get(); cm != nil {
-				ctx := context.Background()
-				cm.RedisClient().Set(ctx, cacheKey, username, ldCacheTTL)
+				_ = cm.Set(cacheKey, username, ldCacheTTL)
 			}
 
 			return &LookupResult{
