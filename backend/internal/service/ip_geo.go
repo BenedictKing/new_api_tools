@@ -2,34 +2,60 @@ package service
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/oschwald/geoip2-golang"
 )
 
 // IPGeoInfo represents IP geolocation information
 type IPGeoInfo struct {
-	IP          string
-	Country     string
-	CountryCode string
-	Region      string
-	City        string
-	Success     bool
+	IP          string `json:"ip"`
+	Country     string `json:"country"`
+	CountryCode string `json:"country_code"`
+	Region      string `json:"region"`
+	City        string `json:"city"`
+	ISP         string `json:"isp"`
+	Org         string `json:"org"`
+	ASN         string `json:"asn"`
+	Success     bool   `json:"success"`
 }
+
+// GeoIP database download URLs (multiple mirrors for reliability)
+var geoipDownloadURLs = []string{
+	"https://raw.githubusercontent.com/adysec/IP_database/main/geolite/GeoLite2-City.mmdb",
+	"https://raw.gitmirror.com/adysec/IP_database/main/geolite/GeoLite2-City.mmdb",
+	"https://cdn.jsdelivr.net/gh/adysec/IP_database@main/geolite/GeoLite2-City.mmdb",
+}
+
+// geoipUpdateInterval is the interval between automatic database updates (24 hours)
+const geoipUpdateInterval = 24 * time.Hour
+
+// geoipMinFileSize is the minimum valid database file size (1 MB)
+const geoipMinFileSize = 1024 * 1024
 
 // IPGeoService provides IP geolocation queries using MaxMind GeoLite2
 type IPGeoService struct {
 	cityReader *geoip2.Reader
+	dbPath     string
 	mu         sync.RWMutex
 	available  bool
+	stopCh     chan struct{}
 }
 
 var (
 	geoService     *IPGeoService
 	geoServiceOnce sync.Once
 )
+
+var ipGeoServiceProvider = func() *IPGeoService {
+	return GetIPGeoService()
+}
 
 // domesticCountryCodes defines Chinese domestic country codes
 var domesticCountryCodes = map[string]bool{
@@ -49,17 +75,25 @@ func GetIPGeoService() *IPGeoService {
 }
 
 func (s *IPGeoService) init() {
+	s.stopCh = make(chan struct{})
+
+	// Determine the preferred database directory
+	geoipDir := os.Getenv("GEOIP_DATA_DIR")
+	if geoipDir == "" {
+		geoipDir = "/app/data/geoip"
+	}
+
 	// Try to find GeoLite2-City.mmdb in common paths
 	paths := []string{
-		os.Getenv("GEOIP_DATA_DIR") + "/GeoLite2-City.mmdb",
+		filepath.Join(geoipDir, "GeoLite2-City.mmdb"),
 		"/app/data/geoip/GeoLite2-City.mmdb",
 		"./data/geoip/GeoLite2-City.mmdb",
 		"/usr/share/GeoIP/GeoLite2-City.mmdb",
 	}
 
 	for _, path := range paths {
-		if path == "/GeoLite2-City.mmdb" {
-			continue // skip empty GEOIP_DATA_DIR + path
+		if path == "/GeoLite2-City.mmdb" || path == "" {
+			continue
 		}
 		if _, err := os.Stat(path); err == nil {
 			reader, err := geoip2.Open(path)
@@ -68,12 +102,179 @@ func (s *IPGeoService) init() {
 				continue
 			}
 			s.cityReader = reader
+			s.dbPath = path
 			s.available = true
 			fmt.Printf("[GeoIP] Loaded database: %s\n", path)
+			// Start background updater
+			go s.backgroundUpdater()
 			return
 		}
 	}
-	fmt.Println("[GeoIP] No GeoLite2-City.mmdb found, IP geolocation disabled")
+
+	// Database not found — try to download it
+	fmt.Println("[GeoIP] No GeoLite2-City.mmdb found, attempting auto-download...")
+	downloadPath := filepath.Join(geoipDir, "GeoLite2-City.mmdb")
+	if err := s.downloadDatabase(downloadPath); err != nil {
+		fmt.Printf("[GeoIP] Auto-download failed: %v\n", err)
+		fmt.Println("[GeoIP] IP geolocation disabled. Will retry in background.")
+		s.dbPath = downloadPath
+		// Start background updater which will keep retrying
+		go s.backgroundUpdater()
+		return
+	}
+
+	// Load the downloaded database
+	reader, err := geoip2.Open(downloadPath)
+	if err != nil {
+		fmt.Printf("[GeoIP] Failed to open downloaded database: %v\n", err)
+		return
+	}
+	s.cityReader = reader
+	s.dbPath = downloadPath
+	s.available = true
+	fmt.Printf("[GeoIP] Database downloaded and loaded: %s\n", downloadPath)
+
+	// Start background updater
+	go s.backgroundUpdater()
+}
+
+// downloadDatabase downloads the GeoLite2-City.mmdb file from mirror URLs
+func (s *IPGeoService) downloadDatabase(destPath string) error {
+	// Ensure directory exists
+	dir := filepath.Dir(destPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create directory %s: %w", dir, err)
+	}
+
+	tempPath := destPath + ".tmp"
+	defer os.Remove(tempPath) // clean up temp file on any failure
+
+	client := &http.Client{Timeout: 120 * time.Second}
+
+	for _, url := range geoipDownloadURLs {
+		fmt.Printf("[GeoIP] Downloading from %s ...\n", url)
+
+		resp, err := client.Get(url)
+		if err != nil {
+			fmt.Printf("[GeoIP] Download failed from %s: %v\n", url, err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			fmt.Printf("[GeoIP] Download failed from %s: HTTP %d\n", url, resp.StatusCode)
+			continue
+		}
+
+		out, err := os.Create(tempPath)
+		if err != nil {
+			resp.Body.Close()
+			return fmt.Errorf("create temp file: %w", err)
+		}
+
+		written, err := io.Copy(out, resp.Body)
+		out.Close()
+		resp.Body.Close()
+
+		if err != nil {
+			fmt.Printf("[GeoIP] Download write failed from %s: %v\n", url, err)
+			os.Remove(tempPath)
+			continue
+		}
+
+		// Validate file size
+		if written < geoipMinFileSize {
+			fmt.Printf("[GeoIP] Downloaded file too small (%d bytes), skipping\n", written)
+			os.Remove(tempPath)
+			continue
+		}
+
+		// Validate it's a valid mmdb by trying to open it
+		testReader, err := geoip2.Open(tempPath)
+		if err != nil {
+			fmt.Printf("[GeoIP] Downloaded file is not valid mmdb: %v\n", err)
+			os.Remove(tempPath)
+			continue
+		}
+		testReader.Close()
+
+		// Atomically replace the old file
+		if err := os.Rename(tempPath, destPath); err != nil {
+			return fmt.Errorf("rename %s -> %s: %w", tempPath, destPath, err)
+		}
+
+		sizeMB := float64(written) / (1024 * 1024)
+		fmt.Printf("[GeoIP] Download complete: %.1f MB\n", sizeMB)
+		return nil
+	}
+
+	return fmt.Errorf("all download mirrors failed")
+}
+
+// backgroundUpdater periodically checks and updates the GeoIP database
+func (s *IPGeoService) backgroundUpdater() {
+	// First check: if database is not available, retry download after 5 minutes
+	if !s.IsAvailable() {
+		select {
+		case <-time.After(5 * time.Minute):
+		case <-s.stopCh:
+			return
+		}
+		s.tryUpdateDatabase()
+	}
+
+	ticker := time.NewTicker(geoipUpdateInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.tryUpdateDatabase()
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+// tryUpdateDatabase attempts to download and reload the GeoIP database
+func (s *IPGeoService) tryUpdateDatabase() {
+	if s.dbPath == "" {
+		return
+	}
+
+	// Check if the existing database is fresh enough
+	if info, err := os.Stat(s.dbPath); err == nil {
+		age := time.Since(info.ModTime())
+		if age < geoipUpdateInterval {
+			return // database is fresh, skip update
+		}
+	}
+
+	fmt.Println("[GeoIP] Checking for database update...")
+
+	if err := s.downloadDatabase(s.dbPath); err != nil {
+		fmt.Printf("[GeoIP] Update failed: %v\n", err)
+		return
+	}
+
+	// Reload the database
+	newReader, err := geoip2.Open(s.dbPath)
+	if err != nil {
+		fmt.Printf("[GeoIP] Failed to reload updated database: %v\n", err)
+		return
+	}
+
+	s.mu.Lock()
+	oldReader := s.cityReader
+	s.cityReader = newReader
+	s.available = true
+	s.mu.Unlock()
+
+	if oldReader != nil {
+		oldReader.Close()
+	}
+
+	fmt.Println("[GeoIP] Database updated and reloaded successfully")
 }
 
 // IsAvailable returns whether the GeoIP service is available
@@ -86,10 +287,6 @@ func (s *IPGeoService) IsAvailable() bool {
 // QuerySingle looks up a single IP address
 func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 	result := IPGeoInfo{IP: ip}
-
-	if !s.available || s.cityReader == nil {
-		return result
-	}
 
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
@@ -106,6 +303,9 @@ func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if !s.available || s.cityReader == nil {
+		return result
+	}
 
 	record, err := s.cityReader.City(parsedIP)
 	if err != nil {
@@ -150,8 +350,70 @@ func (s *IPGeoService) QueryBatch(ips []string) map[string]IPGeoInfo {
 	return results
 }
 
-// Close releases the GeoIP database resources
+// LookupIPGeo looks up one IP through the configured GeoIP service provider.
+func LookupIPGeo(ip string) IPGeoInfo {
+	svc := ipGeoServiceProvider()
+	if svc == nil {
+		return IPGeoInfo{IP: ip}
+	}
+	return svc.QuerySingle(ip)
+}
+
+// LookupIPGeoBatch looks up multiple IPs through the configured GeoIP service provider.
+func LookupIPGeoBatch(ips []string) map[string]IPGeoInfo {
+	svc := ipGeoServiceProvider()
+	if svc == nil {
+		results := make(map[string]IPGeoInfo, len(ips))
+		for _, ip := range ips {
+			results[ip] = IPGeoInfo{IP: ip}
+		}
+		return results
+	}
+	return svc.QueryBatch(ips)
+}
+
+// IsIPGeoAvailable reports whether the configured GeoIP service is ready.
+func IsIPGeoAvailable() bool {
+	svc := ipGeoServiceProvider()
+	return svc != nil && svc.IsAvailable()
+}
+
+// FormatIPGeoInfo returns the stable snake_case response shape used by IP APIs.
+func FormatIPGeoInfo(info IPGeoInfo) map[string]interface{} {
+	return map[string]interface{}{
+		"ip":           info.IP,
+		"country":      info.Country,
+		"country_code": info.CountryCode,
+		"region":       info.Region,
+		"city":         info.City,
+		"isp":          info.ISP,
+		"org":          info.Org,
+		"asn":          info.ASN,
+		"success":      info.Success,
+	}
+}
+
+// SetIPGeoServiceProviderForTesting replaces the GeoIP provider and returns a restore function.
+func SetIPGeoServiceProviderForTesting(provider func() *IPGeoService) func() {
+	old := ipGeoServiceProvider
+	ipGeoServiceProvider = provider
+	return func() {
+		ipGeoServiceProvider = old
+	}
+}
+
+// Close releases the GeoIP database resources and stops the background updater
 func (s *IPGeoService) Close() {
+	// Stop background updater
+	if s.stopCh != nil {
+		select {
+		case <-s.stopCh:
+			// already closed
+		default:
+			close(s.stopCh)
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cityReader != nil {
