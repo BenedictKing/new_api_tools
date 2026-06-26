@@ -36,6 +36,8 @@ WORKDIR /app
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata curl
+ENV SERVER_HOST=0.0.0.0 \
+    SERVER_PORT=8000
 
 # Create non-root user
 RUN adduser -D -s /bin/sh appuser
@@ -52,7 +54,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Start server
 CMD ["/app/server"]

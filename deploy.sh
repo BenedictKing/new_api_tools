@@ -19,6 +19,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
+COMPOSE_HOST_FILE="${SCRIPT_DIR}/docker-compose.host.yml"
+COMPOSE_LOGDB_FILE="${SCRIPT_DIR}/docker-compose.logdb.yml"
+
+# 由 detect_environment() 设置：host 模式下需要追加 overlay compose 文件
+COMPOSE_FILES=("-f" "$COMPOSE_FILE")
 
 # 颜色输出
 RED='\033[0;31m'
@@ -50,6 +55,26 @@ detect_docker_compose() {
 
 trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# 生成 32 字符强密码（约 200 bits 熵）
+# 字符集：62 字母数字 + 14 个安全特殊符号 = 76 chars
+# 刻意排除：$ ` \ " ' = # ; & | < > [ ] / 空格 — 这些会破坏 .env / docker-compose / heredoc 解析
+# 注意：- 必须放在 tr 字符类末尾，否则会被解读为范围操作符
+generate_strong_password() {
+  local alphabet='A-Za-z0-9!@%^*()_+:?,.-'
+  local pw=""
+  if [[ -r /dev/urandom ]]; then
+    pw="$(LC_ALL=C tr -dc "$alphabet" </dev/urandom 2>/dev/null | head -c 32)"
+  fi
+  if [[ ${#pw} -lt 32 ]] && command -v openssl >/dev/null 2>&1; then
+    pw="$(openssl rand 256 2>/dev/null | LC_ALL=C tr -dc "$alphabet" | head -c 32)"
+  fi
+  if [[ ${#pw} -lt 32 ]]; then
+    log_warn "强密码生成失败，回退到 20 字符字母数字"
+    pw="$(head -c 256 /dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 20)"
+  fi
+  echo "$pw"
+}
+
 first_csv() {
   echo "${1}" | sed 's/,.*$//'
 }
@@ -78,15 +103,45 @@ extract_dsn_host() {
   echo "$host"
 }
 
+# 从 DSN URL 解析用户名 (postgresql://user:pass@host:port/db)
+extract_dsn_user() {
+  local dsn="${1:-}"
+  [[ -z "$dsn" ]] && return 0
+  echo "$dsn" | sed -nE 's#^[a-zA-Z0-9+.-]+://([^:@/]+)(:[^@/]*)?@.*#\1#p'
+}
+
+# 从 DSN URL 解析密码
+extract_dsn_password() {
+  local dsn="${1:-}"
+  [[ -z "$dsn" ]] && return 0
+  echo "$dsn" | sed -nE 's#^[a-zA-Z0-9+.-]+://[^:@/]+:([^@]*)@.*#\1#p'
+}
+
+# 从 DSN URL 解析端口
+extract_dsn_port() {
+  local dsn="${1:-}"
+  [[ -z "$dsn" ]] && return 0
+  echo "$dsn" | sed -nE 's#^[a-zA-Z0-9+.-]+://[^@]*@[^:/]+:([0-9]+).*#\1#p'
+}
+
+# 从 DSN URL 解析数据库名
+extract_dsn_dbname() {
+  local dsn="${1:-}"
+  [[ -z "$dsn" ]] && return 0
+  echo "$dsn" | sed -nE 's#^[a-zA-Z0-9+.-]+://[^@]*@[^/]+/([^?]+).*#\1#p'
+}
+
 detect_newapi_container() {
   local found=""
-  found="$(docker ps --format '{{.Names}}' | awk '$0=="new-api"{print; exit}')"
+  # 按容器名匹配：new-api / new-api-master / new-api-my ...（不含 newapi-tools）
+  found="$(docker ps --format '{{.Names}}' | awk 'tolower($0) ~ /(^|[-_])new-api([-_]|$)/ {print; exit}')"
   if [[ -n "$found" ]]; then echo "$found"; return 0; fi
 
   found="$(docker ps -q --filter 'label=com.docker.compose.service=new-api' | head -n 1 || true)"
   if [[ -n "$found" ]]; then echo "$found"; return 0; fi
 
-  found="$(docker ps --format '{{.ID}}\t{{.Image}}' | awk 'tolower($2) ~ /(^|\/)new-api(:|$)/ {print $1; exit}')"
+  # 按镜像名匹配：允许 fork 后缀（new-api-my:latest 也能命中）
+  found="$(docker ps --format '{{.ID}}\t{{.Image}}' | awk 'tolower($2) ~ /(^|\/)new-api([-_:]|$)/ {print $1; exit}')"
   if [[ -n "$found" ]]; then echo "$found"; return 0; fi
 
   return 1
@@ -136,6 +191,63 @@ get_container_ipv4() {
   docker inspect -f "{{(index .NetworkSettings.Networks \"$network\").IPAddress}}" "$container" 2>/dev/null || true
 }
 
+# 判断一个字符串是否是 IPv4 字面量
+is_ipv4_literal() {
+  [[ "${1:-}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+}
+
+# 给定一个 IPv4，在所有运行中的容器里反查“谁在某个 docker 网络上持有这个 IP”。
+# 命中则输出 "<网络名>\t<容器名>"（取第一个匹配），否则无输出。
+# 用于：NewAPI 是 host 模式、但数据库其实是另一条 bridge 网络上的容器（如 1Panel 托管的 PG），
+#       DSN 里硬编码了该容器的 bridge IP（172.x.x.x）——此时 newapi-tools 需要挂进那条网络。
+find_container_by_network_ip() {
+  local target_ip="${1:-}"
+  [[ -z "$target_ip" ]] && return 0
+  local cid name net ip
+  while IFS= read -r cid; do
+    [[ -z "$cid" ]] && continue
+    name="$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's#^/##')"
+    while IFS=$'\t' read -r net ip; do
+      [[ -z "$net" ]] && continue
+      if [[ "$ip" == "$target_ip" ]]; then
+        printf '%s\t%s\n' "$net" "$name"
+        return 0
+      fi
+    done < <(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\t"}}{{$v.IPAddress}}{{"\n"}}{{end}}' "$cid" 2>/dev/null)
+  done < <(docker ps -q)
+  return 0
+}
+
+# 给定一个宿主机端口，找出"把该端口发布到宿主机(0.0.0.0 / 127.0.0.1 / [::])"的容器，
+# 并返回它所在的【用户自定义】网络、容器名、以及容器内端口："<网络名>\t<容器名>\t<容器内端口>"。
+# 用于：NewAPI 是 host 模式、DSN host 写的是 127.0.0.1，但数据库其实是个容器、
+#       端口只发布在宿主机回环上（1Panel / 宝塔默认就这么发布）。这种情况下
+#       host.docker.internal(网关 IP) 连不通（docker-proxy 只绑回环），必须把
+#       newapi-tools 挂进该容器的网络、用容器名直连。
+# 注意：返回的是容器内端口（PortBindings 的 key 侧），而非宿主机映射端口——
+#       例如 127.0.0.1:5433->5432 时，同网络直连要用 5432 而不是 5433。
+# 排除默认 bridge / host / none：它们不支持按容器名做 DNS 解析。
+find_container_by_published_port() {
+  local target_port="${1:-}"
+  [[ -z "$target_port" ]] && return 0
+  local cid name net cport
+  while IFS= read -r cid; do
+    [[ -z "$cid" ]] && continue
+    # docker port 输出形如 "5432/tcp -> 127.0.0.1:5432"；取宿主机端口==target 的那条的容器内端口
+    cport="$(docker port "$cid" 2>/dev/null | awk -F' -> ' -v p="$target_port" '
+      { n=split($2,h,":"); if (h[n]==p) { split($1,c,"/"); print c[1]; exit } }')"
+    [[ -z "$cport" ]] && continue
+    name="$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's#^/##')"
+    while IFS= read -r net; do
+      [[ -z "$net" ]] && continue
+      case "$net" in bridge|host|none) continue ;; esac
+      printf '%s\t%s\t%s\n' "$net" "$name" "$cport"
+      return 0
+    done < <(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$cid" 2>/dev/null)
+  done < <(docker ps -q)
+  return 0
+}
+
 #######################################
 # 检测 NewAPI 环境
 #######################################
@@ -145,7 +257,7 @@ detect_environment() {
   # 检测 NewAPI 容器
   NEWAPI_CONTAINER="${NEWAPI_CONTAINER:-}"
   if [[ -z "$NEWAPI_CONTAINER" ]]; then
-    NEWAPI_CONTAINER="$(detect_newapi_container)" || die "找不到运行中的 NewAPI 容器 (期望容器名为 'new-api')"
+    NEWAPI_CONTAINER="$(detect_newapi_container)" || die "找不到运行中的 NewAPI 容器（可设置环境变量 NEWAPI_CONTAINER=<容器名或ID> 手动指定）"
   fi
   log_success "找到 NewAPI 容器: $NEWAPI_CONTAINER"
 
@@ -163,38 +275,54 @@ detect_environment() {
   fi
 
   # 检测网络
-  local networks
+  local networks network_mode
   networks="$(detect_networks_for_container "$NEWAPI_CONTAINER" | trim || true)"
-  NEWAPI_NETWORK="${NEWAPI_NETWORK:-}"
-  if [[ -z "$NEWAPI_NETWORK" ]]; then
-    NEWAPI_NETWORK="$(echo "$networks" | head -n 1 | trim)"
-  fi
-  [[ -n "$NEWAPI_NETWORK" ]] || die "无法确定 NewAPI 容器的 Docker 网络"
-  container_is_on_network "$NEWAPI_CONTAINER" "$NEWAPI_NETWORK" || die "容器 '$NEWAPI_CONTAINER' 未连接到网络 '$NEWAPI_NETWORK'"
+  network_mode="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$NEWAPI_CONTAINER" 2>/dev/null | trim || true)"
 
-  # 检查是否为默认 bridge 网络（不支持 network-scoped alias）
-  ORIGINAL_NETWORK="$NEWAPI_NETWORK"
+  ORIGINAL_NETWORK=""
   USE_BRIDGE_MODE=false
+  USE_HOST_MODE=false
 
-  if [[ "$NEWAPI_NETWORK" == "bridge" ]]; then
-    log_warn "检测到 NewAPI 使用默认 bridge 网络"
-    log_warn "默认 bridge 网络不支持 Docker 服务发现，将使用 IPv4 地址模式"
-    log_info ""
-    log_info "提示：为获得更好的体验，建议将 NewAPI 部署在用户自定义网络中"
-    log_info ""
-    USE_BRIDGE_MODE=true
-
-    # 创建一个用户自定义网络供 docker-compose 使用
-    # 这样可以避免 "network-scoped alias" 错误
-    if ! docker network inspect newapi-tools-network >/dev/null 2>&1; then
-      log_info "创建网络 'newapi-tools-network' 供服务使用..."
-      docker network create newapi-tools-network || die "创建网络失败"
-    fi
-    # 使用新创建的网络作为 NEWAPI_NETWORK（供 docker-compose.yml 使用）
-    NEWAPI_NETWORK="newapi-tools-network"
-    log_success "使用网络: $NEWAPI_NETWORK (数据库连接将使用 IPv4 地址)"
+  if [[ "$network_mode" == "host" ]]; then
+    # ===== Host 网络模式 =====
+    # 注意：NewAPI 用 host 网络，不代表数据库也在宿主机上。
+    # 常见反例：数据库是 1Panel / 另一套 compose 托管的容器，挂在某条 bridge 网络上，
+    # DSN 里写的是它的 bridge IP（172.x）。这种 IP 只有 host 网络的 NewAPI 碰得到，
+    # bridge 里的 newapi-tools 跨不过去。真正的网络方案要等解析完 DSN host 再定（见下方）。
+    log_warn "检测到 NewAPI 使用 host 网络模式"
+    USE_HOST_MODE=true
+    NEWAPI_NETWORK=""
+    ORIGINAL_NETWORK="host"
   else
-    log_success "检测到网络: $NEWAPI_NETWORK"
+    NEWAPI_NETWORK="${NEWAPI_NETWORK:-}"
+    if [[ -z "$NEWAPI_NETWORK" ]]; then
+      NEWAPI_NETWORK="$(echo "$networks" | head -n 1 | trim)"
+    fi
+    [[ -n "$NEWAPI_NETWORK" ]] || die "无法确定 NewAPI 容器的 Docker 网络"
+    container_is_on_network "$NEWAPI_CONTAINER" "$NEWAPI_NETWORK" || die "容器 '$NEWAPI_CONTAINER' 未连接到网络 '$NEWAPI_NETWORK'"
+
+    ORIGINAL_NETWORK="$NEWAPI_NETWORK"
+
+    if [[ "$NEWAPI_NETWORK" == "bridge" ]]; then
+      log_warn "检测到 NewAPI 使用默认 bridge 网络"
+      log_warn "默认 bridge 网络不支持 Docker 服务发现，将使用 IPv4 地址模式"
+      log_info ""
+      log_info "提示：为获得更好的体验，建议将 NewAPI 部署在用户自定义网络中"
+      log_info ""
+      USE_BRIDGE_MODE=true
+
+      # 创建一个用户自定义网络供 docker-compose 使用
+      # 这样可以避免 "network-scoped alias" 错误
+      if ! docker network inspect newapi-tools-network >/dev/null 2>&1; then
+        log_info "创建网络 'newapi-tools-network' 供服务使用..."
+        docker network create newapi-tools-network || die "创建网络失败"
+      fi
+      # 使用新创建的网络作为 NEWAPI_NETWORK（供 docker-compose.yml 使用）
+      NEWAPI_NETWORK="newapi-tools-network"
+      log_success "使用网络: $NEWAPI_NETWORK (数据库连接将使用 IPv4 地址)"
+    else
+      log_success "检测到网络: $NEWAPI_NETWORK"
+    fi
   fi
 
   # 检测数据库 DSN
@@ -205,6 +333,92 @@ detect_environment() {
 
   DB_ENGINE="$(extract_dsn_engine "$detected_dsn" || true)"
   DB_DNS="$(extract_dsn_host "$detected_dsn" || true)"
+
+  # ===== Host 模式：完全从 DSN 解析凭证，跳过数据库容器探测 =====
+  if [[ "$USE_HOST_MODE" == "true" ]]; then
+    [[ -n "$detected_dsn" ]] || die "host 模式下必须能从 NewAPI 容器读取 SQL_DSN，但未检测到"
+    [[ -n "$DB_ENGINE" ]] || die "无法从 DSN 识别数据库引擎: $detected_dsn"
+
+    # 先解析出完整凭证（下面判断"怎么连"时要用到端口）
+    DB_USER="$(extract_dsn_user "$detected_dsn")"
+    DB_PASSWORD="$(extract_dsn_password "$detected_dsn")"
+    DB_PORT="$(extract_dsn_port "$detected_dsn")"
+    DB_NAME="$(extract_dsn_dbname "$detected_dsn")"
+
+    if [[ "$DB_ENGINE" == "postgres" ]]; then
+      DB_PORT="${DB_PORT:-5432}"
+      DB_USER="${DB_USER:-postgres}"
+      DB_NAME="${DB_NAME:-new-api}"
+    elif [[ "$DB_ENGINE" == "mysql" ]]; then
+      DB_PORT="${DB_PORT:-3306}"
+      DB_USER="${DB_USER:-root}"
+      DB_NAME="${DB_NAME:-new-api}"
+    fi
+
+    # ===== 决定 newapi-tools 怎么连到这个数据库 =====
+    # 四种情形：
+    #  (a1) DSN host 是 127.0.0.1/localhost，但数据库其实是个容器、端口只发布在宿主机
+    #       回环上（127.0.0.1:PORT，1Panel/宝塔最常见）→ host.docker.internal(网关)连不通，
+    #       把 newapi-tools 挂进该容器的网络、用容器名直连，端口改用容器内端口。
+    #  (a2) DSN host 是 127.0.0.1/localhost，数据库是宿主机裸装进程(或发布到 0.0.0.0)
+    #       → 用 host.docker.internal 走宿主机网关。
+    #  (b)  DSN host 是某条 bridge 网络上某容器的 IP → 挂进那条网络，host 改成容器名。
+    #  (c)  其它（外部 DB、真实 LAN IP、域名）→ 原样保留，靠 extra_hosts / 宿主路由可达。
+    if [[ "$DB_DNS" == "127.0.0.1" || "$DB_DNS" == "localhost" || "$DB_DNS" == "::1" ]]; then
+      local _hit _hit_net _hit_name _hit_port
+      _hit="$(find_container_by_published_port "$DB_PORT")"
+      _hit_net="$(printf '%s' "$_hit" | cut -f1)"
+      _hit_name="$(printf '%s' "$_hit" | cut -f2)"
+      _hit_port="$(printf '%s' "$_hit" | cut -f3)"
+      if [[ -n "$_hit_net" && -n "$_hit_name" ]]; then
+        # 情形 (a1)：DB 是容器，端口仅发布在宿主机回环 → 挂进它的网络、用容器名连
+        NEWAPI_NETWORK="$_hit_net"
+        log_warn "数据库 127.0.0.1:${DB_PORT} 实为容器 '${_hit_name}'（端口仅发布在宿主机回环，网关不可达）"
+        log_info "将把 newapi-tools 接入网络 '${_hit_net}'，用容器名 '${_hit_name}:${_hit_port}' 直连（绕开回环端口映射）"
+        DB_DNS="$_hit_name"
+        DB_PORT="$_hit_port"
+        USE_HOST_MODE=false   # 不再脱离 external 网络：我们要挂进它，而非走 host overlay
+        ORIGINAL_NETWORK="$_hit_net"
+      else
+        # 情形 (a2)：DB 在宿主机回环但非容器（或发布到 0.0.0.0）→ 走宿主机网关
+        DB_DNS="host.docker.internal"
+        log_info "数据库地址改写: 127.0.0.1 → host.docker.internal（数据库在宿主机回环上）"
+      fi
+    elif is_ipv4_literal "$DB_DNS"; then
+      local _hit _hit_net _hit_name
+      _hit="$(find_container_by_network_ip "$DB_DNS")"
+      _hit_net="$(printf '%s' "$_hit" | cut -f1)"
+      _hit_name="$(printf '%s' "$_hit" | cut -f2)"
+      if [[ -n "$_hit_net" && -n "$_hit_name" ]]; then
+        NEWAPI_NETWORK="$_hit_net"
+        log_warn "数据库 ${DB_DNS} 是容器 '${_hit_name}' 在 bridge 网络 '${_hit_net}' 上的 IP"
+        log_info "将把 newapi-tools 接入网络 '${_hit_net}'，并用容器名连接（IP 重启会变，容器名不会）"
+        DB_DNS="$_hit_name"
+        USE_HOST_MODE=false   # 不再走 host overlay：我们要挂进 external 网络，而非脱离它
+        ORIGINAL_NETWORK="$_hit_net"
+      else
+        log_warn "数据库地址 ${DB_DNS} 是 IP 但不属于任何已知 docker 网络容器，按外部地址原样使用"
+      fi
+    else
+      log_info "数据库地址为主机名/外部地址，原样使用: ${DB_DNS}"
+    fi
+
+    if [[ "$USE_HOST_MODE" == "true" ]]; then
+      # 情形 (a)/(c)：数据库走宿主机（host.docker.internal）或外部地址，
+      # newapi-tools 无需任何 external 网络 → 加载 host overlay 去掉 newapi-network 依赖。
+      if [[ -f "$COMPOSE_HOST_FILE" ]]; then
+        COMPOSE_FILES=("-f" "$COMPOSE_FILE" "-f" "$COMPOSE_HOST_FILE")
+      else
+        log_warn "未找到 $COMPOSE_HOST_FILE，host 模式可能启动失败"
+      fi
+      log_success "检测到数据库 (host 模式): $DB_ENGINE @ $DB_DNS:$DB_PORT/$DB_NAME"
+    else
+      # 情形 (b)：数据库在另一条 bridge 网络上，newapi-tools 已改为挂进该网络（NEWAPI_NETWORK）。
+      # 用主 compose（newapi-network=external 指向该网络），不加载 host overlay。
+      log_success "检测到数据库 (跨网 bridge): $DB_ENGINE @ $DB_DNS:$DB_PORT/$DB_NAME (网络: $NEWAPI_NETWORK)"
+    fi
+    return 0
+  fi
 
   # 检测数据库容器
   local db_container="" db_service=""
@@ -318,36 +532,125 @@ detect_environment() {
 }
 
 #######################################
+# 检测日志分库（LOG_SQL_DSN）
+#
+# 部分 NewAPI fork 用 LOG_SQL_DSN 把 logs 表整张分离到独立库。本工具需读取该库
+# 才能看到实时日志/流量。本函数从 NewAPI 容器读取 LOG_SQL_DSN，解析并做与主库
+# 同款的「容器名/网络」改写，产出：
+#   LOG_SQL_DSN_FINAL  写入工具 .env 的最终 DSN（容器名直连/host.docker.internal）
+#   LOG_NETWORK        日志库容器所在网络（与主库不同时需把工具接入它）
+# NewAPI 未启用 LOG_SQL_DSN 时全部留空，工具自动回落主库（向后兼容）。
+#######################################
+detect_log_database() {
+  LOG_SQL_DSN_FINAL=""
+  LOG_NETWORK=""
+
+  local raw=""
+  raw="$(docker_inspect_env_value "$NEWAPI_CONTAINER" 'LOG_SQL_DSN' || true)"
+  if [[ -z "$raw" ]]; then
+    log_info "NewAPI 未启用日志分库（无 LOG_SQL_DSN），工具将从主库读取日志"
+    return 0
+  fi
+  log_info "检测到 NewAPI 启用了日志分库（LOG_SQL_DSN），开始配置独立日志库连接..."
+
+  local engine host port user pass db
+  engine="$(extract_dsn_engine "$raw" || true)"
+  host="$(extract_dsn_host "$raw" || true)"
+  port="$(extract_dsn_port "$raw" || true)"
+  user="$(extract_dsn_user "$raw" || true)"
+  pass="$(extract_dsn_password "$raw" || true)"
+  db="$(extract_dsn_dbname "$raw" || true)"
+  [[ -n "$host" && -n "$db" ]] || { log_warn "无法解析 LOG_SQL_DSN（host/dbname 缺失），跳过日志库配置"; return 0; }
+  if [[ "$engine" == "mysql" ]]; then port="${port:-3306}"; else engine="postgres"; port="${port:-5432}"; fi
+
+  # 与主库同款的连接方式改写
+  if [[ "$host" == "127.0.0.1" || "$host" == "localhost" || "$host" == "::1" ]]; then
+    local _hit _net _name _port
+    _hit="$(find_container_by_published_port "$port")"
+    _net="$(printf '%s' "$_hit" | cut -f1)"; _name="$(printf '%s' "$_hit" | cut -f2)"; _port="$(printf '%s' "$_hit" | cut -f3)"
+    if [[ -n "$_net" && -n "$_name" ]]; then
+      log_warn "日志库 127.0.0.1:${port} 实为容器 '${_name}'（端口仅发布在宿主机回环）"
+      log_info "将把 newapi-tools 接入网络 '${_net}'，用容器名 '${_name}:${_port}' 直连"
+      host="$_name"; port="$_port"; LOG_NETWORK="$_net"
+    else
+      host="host.docker.internal"
+      log_info "日志库在宿主机回环上，改写为 host.docker.internal"
+    fi
+  elif is_ipv4_literal "$host"; then
+    local _hit _net _name
+    _hit="$(find_container_by_network_ip "$host")"
+    _net="$(printf '%s' "$_hit" | cut -f1)"; _name="$(printf '%s' "$_hit" | cut -f2)"
+    if [[ -n "$_net" && -n "$_name" ]]; then
+      log_warn "日志库 ${host} 是容器 '${_name}' 在网络 '${_net}' 上的 IP"
+      log_info "将把 newapi-tools 接入网络 '${_net}'，用容器名直连"
+      host="$_name"; LOG_NETWORK="$_net"
+    else
+      log_info "日志库地址 ${host} 是 IP 但不属于已知 docker 网络容器，按外部地址原样使用"
+    fi
+  else
+    log_info "日志库地址为主机名/外部地址，原样使用: ${host}"
+  fi
+
+  if [[ "$engine" == "mysql" ]]; then
+    LOG_SQL_DSN_FINAL="${user}:${pass}@tcp(${host}:${port})/${db}?charset=utf8mb4&parseTime=True"
+  else
+    LOG_SQL_DSN_FINAL="host=${host} port=${port} user=${user} password=${pass} dbname=${db} sslmode=disable"
+  fi
+
+  # 日志库网络与主库不同时，追加日志叠加层并接入网络（相同则工具已在该网络上）
+  if [[ -n "$LOG_NETWORK" && "$LOG_NETWORK" != "${NEWAPI_NETWORK:-}" ]]; then
+    if [[ -f "$COMPOSE_LOGDB_FILE" ]]; then
+      COMPOSE_FILES+=("-f" "$COMPOSE_LOGDB_FILE")
+      log_success "已启用日志库网络叠加层（network=${LOG_NETWORK}）"
+    else
+      log_warn "未找到 $COMPOSE_LOGDB_FILE，日志库网络持久化可能失效（仍会用 docker network connect 兜底）"
+    fi
+  elif [[ -n "$LOG_NETWORK" ]]; then
+    log_info "日志库与主库同在网络 '${LOG_NETWORK}'，无需额外网络配置"
+    LOG_NETWORK=""  # 已通过主库网络可达，无需重复接入
+  fi
+
+  log_success "检测到日志分库: ${engine} @ ${host}:${port}/${db}${LOG_NETWORK:+ (网络: ${LOG_NETWORK})}"
+}
+
+#######################################
 # 交互式配置
 #######################################
 interactive_config() {
   log_info "开始配置..."
   echo ""
 
+  AUTO_GENERATED_PASSWORD=false
+
   # 前端访问密码
   if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
-    while true; do
-      echo -e "${YELLOW}请设置前端访问密码:${NC}"
-      read -sp "密码: " ADMIN_PASSWORD
-      echo ""
+    echo -e "${YELLOW}请设置前端访问密码${NC} ${BLUE}(直接回车自动生成 32 位强密码)${NC}:"
+    read -srp "密码: " ADMIN_PASSWORD
+    echo ""
 
-      if [[ -z "$ADMIN_PASSWORD" ]]; then
-        log_error "密码不能为空，请重新输入"
+    if [[ -z "$ADMIN_PASSWORD" ]]; then
+      ADMIN_PASSWORD="$(generate_strong_password)"
+      AUTO_GENERATED_PASSWORD=true
+      log_success "已自动生成强密码（部署完成后会显示，请妥善保存）"
+    else
+      while true; do
+        read -srp "确认密码: " ADMIN_PASSWORD_CONFIRM
         echo ""
-        continue
-      fi
-
-      read -sp "确认密码: " ADMIN_PASSWORD_CONFIRM
-      echo ""
-
-      if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
+        if [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]]; then
+          break
+        fi
         log_error "两次输入的密码不一致，请重新输入"
         echo ""
-        continue
-      fi
-
-      break
-    done
+        read -srp "密码: " ADMIN_PASSWORD
+        echo ""
+        if [[ -z "$ADMIN_PASSWORD" ]]; then
+          ADMIN_PASSWORD="$(generate_strong_password)"
+          AUTO_GENERATED_PASSWORD=true
+          log_success "已自动生成强密码"
+          break
+        fi
+      done
+    fi
   fi
   log_success "前端密码已设置"
 
@@ -356,6 +659,25 @@ interactive_config() {
 
   # 前端端口默认 1145
   FRONTEND_PORT="${FRONTEND_PORT:-1145}"
+
+  # 前端端口暴露范围
+  if [[ -z "${FRONTEND_BIND:-}" ]]; then
+    echo ""
+    echo -e "${YELLOW}前端端口暴露范围${NC}"
+    echo -e "  ${BLUE}1) 公网可达${NC}    任何 IP 都能 http://server-ip:${FRONTEND_PORT} 直接访问 ${BLUE}(默认，便于快速使用)${NC}"
+    echo -e "  ${GREEN}2) 仅本机${NC}      仅监听 127.0.0.1，需自行配宿主机 nginx 反代到 HTTPS 域名 ${GREEN}(更安全)${NC}"
+    read -r -p "请选择 [1/2，回车默认 1]: " bind_choice
+    case "$bind_choice" in
+      2)
+        FRONTEND_BIND="127.0.0.1"
+        log_info "已选仅本机模式，部署完成后请配置宿主机 nginx 反代"
+        ;;
+      *)
+        FRONTEND_BIND="0.0.0.0"
+        log_info "已选公网模式，可直接通过 IP:${FRONTEND_PORT} 访问"
+        ;;
+    esac
+  fi
 
   echo ""
 }
@@ -374,9 +696,15 @@ generate_env_file() {
     sql_dsn="${DB_USER}:${DB_PASSWORD}@tcp(${DB_DNS}:${DB_PORT})/${DB_NAME}?charset=utf8mb4&parseTime=True"
   fi
 
+  # 给生成的 .env 标记网络模式，方便后续 status / 故障排查辨认
+  local network_mode_tag="custom"
+  [[ "$USE_BRIDGE_MODE" == "true" ]] && network_mode_tag="bridge"
+  [[ "$USE_HOST_MODE" == "true" ]] && network_mode_tag="host"
+
   cat > "$ENV_FILE" <<EOF
 # NewAPI Middleware Tool 配置文件
 # 由 deploy.sh 自动生成于 $(date '+%Y-%m-%d %H:%M:%S')
+# 网络部署模式: ${network_mode_tag}
 
 # NewAPI 环境
 NEWAPI_CONTAINER=${NEWAPI_CONTAINER}
@@ -391,12 +719,18 @@ DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASSWORD}
 
+# 日志分库 (NewAPI 启用 LOG_SQL_DSN 时自动检测；为空则日志查询回落主库)
+LOG_SQL_DSN=${LOG_SQL_DSN_FINAL:-}
+# 日志库容器所在网络 (与主库不同时由 docker-compose.logdb.yml 叠加层接入)
+LOG_NETWORK=${LOG_NETWORK:-}
+
 # 认证配置
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 API_KEY=${API_KEY}
 
 # 服务配置
 FRONTEND_PORT=${FRONTEND_PORT}
+FRONTEND_BIND=${FRONTEND_BIND}
 TIMEZONE=Asia/Shanghai
 LOG_LEVEL=info
 
@@ -487,22 +821,30 @@ start_services() {
   # 检查是否有旧容器
   if docker ps -a --format '{{.Names}}' | grep -qE '^newapi-tools$'; then
     log_warn "发现已存在的服务容器，正在停止..."
-    $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down 2>/dev/null || true
+    $DOCKER_COMPOSE "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" down 2>/dev/null || true
   fi
 
   # 拉取最新镜像
   log_info "拉取最新镜像..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
+  $DOCKER_COMPOSE "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" pull
 
   # 启动服务
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+  $DOCKER_COMPOSE "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" up -d
 
   # 将容器连接到 NewAPI 网络（用于访问数据库）
   # 注意：docker-compose.yml 中也配置了网络，这里是双重保障
-  # 在 bridge 模式下跳过，因为我们使用 IPv4 地址连接数据库
-  if [[ "$USE_BRIDGE_MODE" != "true" && -n "$NEWAPI_NETWORK" ]]; then
+  # bridge / host 模式下跳过：bridge 用 IPv4 地址；host 用 host.docker.internal
+  if [[ "$USE_HOST_MODE" == "true" ]]; then
+    log_info "host 模式：跳过 docker network connect"
+  elif [[ "$USE_BRIDGE_MODE" != "true" && -n "$NEWAPI_NETWORK" ]]; then
     log_info "连接到 NewAPI 网络: $NEWAPI_NETWORK"
     docker network connect "$NEWAPI_NETWORK" newapi-tools 2>/dev/null || log_warn "网络已连接"
+  fi
+
+  # 日志库在另一条网络上时，把工具也接入（叠加层已配置，这里双重保障）
+  if [[ -n "${LOG_NETWORK:-}" ]]; then
+    log_info "连接到日志库网络: $LOG_NETWORK"
+    docker network connect "$LOG_NETWORK" newapi-tools 2>/dev/null || log_warn "日志库网络已连接"
   fi
 
   log_success "服务已启动!"
@@ -516,10 +858,46 @@ start_services() {
   echo -e "${GREEN}  NewAPI Middleware Tool 部署成功!${NC}"
   echo -e "${GREEN}========================================${NC}"
   echo ""
-  echo -e "前端访问地址: ${BLUE}http://${server_ip}:${FRONTEND_PORT}${NC}"
-  echo -e "API 地址: ${BLUE}http://${server_ip}:${FRONTEND_PORT}/api${NC}"
+  if [[ "$FRONTEND_BIND" == "127.0.0.1" || "$FRONTEND_BIND" == "localhost" || "$FRONTEND_BIND" == "::1" ]]; then
+    echo -e "${YELLOW}前端端口仅监听本机 127.0.0.1:${FRONTEND_PORT}，外部直连不可达${NC}"
+    echo -e "请在宿主机配置 nginx 反代到 HTTPS 域名，参考配置："
+    cat <<NGINX
+   server {
+     listen 443 ssl http2;
+     server_name your-domain.com;
+     ssl_certificate     /path/to/fullchain.pem;
+     ssl_certificate_key /path/to/privkey.pem;
+     location / {
+       proxy_pass http://127.0.0.1:${FRONTEND_PORT};
+       proxy_set_header Host \$host;
+       proxy_set_header X-Real-IP \$remote_addr;
+       proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto \$scheme;
+     }
+   }
+NGINX
+  else
+    echo -e "前端访问地址: ${BLUE}http://${server_ip}:${FRONTEND_PORT}${NC}"
+    echo -e "API 地址: ${BLUE}http://${server_ip}:${FRONTEND_PORT}/api${NC}"
+  fi
   echo ""
-  echo -e "登录密码: ${YELLOW}${ADMIN_PASSWORD}${NC}"
+
+  if [[ "${AUTO_GENERATED_PASSWORD:-false}" == "true" ]]; then
+    local sep
+    sep="$(printf '═%.0s' {1..62})"
+    echo -e "${YELLOW}╔${sep}╗${NC}"
+    printf "${YELLOW}║${NC}  ${YELLOW}⚠  以下是自动生成的随机登录密码，请立即复制保存：${NC}        ${YELLOW}║${NC}\n"
+    printf "${YELLOW}╠${sep}╣${NC}\n"
+    printf "${YELLOW}║${NC}                                                                ${YELLOW}║${NC}\n"
+    printf "${YELLOW}║${NC}    ${GREEN}%-56s${NC}    ${YELLOW}║${NC}\n" "$ADMIN_PASSWORD"
+    printf "${YELLOW}║${NC}                                                                ${YELLOW}║${NC}\n"
+    printf "${YELLOW}╠${sep}╣${NC}\n"
+    printf "${YELLOW}║${NC}  忘记密码可重新运行 install.sh，管理面板内会显示该密码         ${YELLOW}║${NC}\n"
+    printf "${YELLOW}║${NC}  也可执行: grep ADMIN_PASSWORD %-32s${YELLOW}║${NC}\n" "$ENV_FILE"
+    echo -e "${YELLOW}╚${sep}╝${NC}"
+  else
+    echo -e "登录密码: ${YELLOW}${ADMIN_PASSWORD}${NC}"
+  fi
   echo ""
   echo -e "配置文件: ${ENV_FILE}"
   echo -e "Compose 文件: ${COMPOSE_FILE}"
@@ -579,7 +957,8 @@ NewAPI Middleware Tool - 一键部署脚本
   NEWAPI_NETWORK     指定 Docker 网络名 (默认: 自动检测)
   ADMIN_PASSWORD     前端访问密码 (默认: 交互式输入)
   API_KEY            后端 API Key (默认: 交互式输入或自动生成)
-  FRONTEND_PORT      前端端口 (默认: 8080)
+  FRONTEND_PORT      前端端口 (默认: 1145)
+  FRONTEND_BIND      前端端口绑定网卡 0.0.0.0/127.0.0.1 (默认: 交互式选择)
 
 示例:
   # 基本部署
@@ -588,8 +967,8 @@ NewAPI Middleware Tool - 一键部署脚本
   # 指定容器名部署
   NEWAPI_CONTAINER=my-newapi ./deploy.sh
 
-  # 非交互式部署
-  ADMIN_PASSWORD=mypass API_KEY=mykey ./deploy.sh
+  # 非交互式部署，用 nginx 反代模式
+  ADMIN_PASSWORD=mypass API_KEY=mykey FRONTEND_BIND=127.0.0.1 ./deploy.sh
 EOF
 }
 
@@ -624,6 +1003,7 @@ main() {
       echo ""
 
       detect_environment
+      detect_log_database
       interactive_config
       generate_env_file
       check_compose_file

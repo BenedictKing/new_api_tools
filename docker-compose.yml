@@ -13,10 +13,16 @@ services:
     image: ghcr.io/james-6-23/new_api_tools:latest
     container_name: newapi-tools
     ports:
-      - "${FRONTEND_PORT:-1145}:8000"
+      # FRONTEND_BIND 控制端口绑定的网卡：
+      #   - 0.0.0.0（默认）：所有网卡可达，浏览器可直连 IP:1145
+      #   - 127.0.0.1     ：仅本机，需要在宿主机配 nginx 反代到 https://your-domain
+      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-1145}:8000"
     environment:
       # 数据库配置 (Go 版本统一使用 SQL_DSN)
       - SQL_DSN=${SQL_DSN:-}
+      # 日志专用库（可选）：NewAPI 若用 LOG_SQL_DSN 把 logs 表分离到独立库，
+      # 本工具需读取该库才能看到实时日志/流量。为空时日志查询回落到主库。
+      - LOG_SQL_DSN=${LOG_SQL_DSN:-}
       # 兼容旧版本分离配置
       - DB_ENGINE=${DB_ENGINE:-}
       - DB_DNS=${DB_DNS:-}
@@ -24,6 +30,9 @@ services:
       - DB_NAME=${DB_NAME:-}
       - DB_USER=${DB_USER:-}
       - DB_PASSWORD=${DB_PASSWORD:-}
+      # 连接池（可选）
+      - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-}
+      - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-}
       # 认证
       - API_KEY=${API_KEY}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
@@ -32,8 +41,8 @@ services:
       # Redis 缓存
       - REDIS_CONN_STRING=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       # 服务配置
-      - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
+      - SERVER_HOST=0.0.0.0
       - TIMEZONE=${TIMEZONE:-Asia/Shanghai}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # NewAPI 连接
@@ -41,6 +50,10 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    # 用于 NewAPI 以 network_mode: host 部署的场景：DSN 中的 127.0.0.1
+    # 会被 deploy.sh 改写为 host.docker.internal，靠这条解析到宿主机网关。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
@@ -50,7 +63,7 @@ services:
         max-size: "50m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
