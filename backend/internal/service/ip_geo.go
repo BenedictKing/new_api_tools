@@ -23,6 +23,7 @@ type IPGeoInfo struct {
 	ISP         string `json:"isp"`
 	Org         string `json:"org"`
 	ASN         string `json:"asn"`
+	IPVersion   string `json:"ip_version,omitempty"`
 	Success     bool   `json:"success"`
 }
 
@@ -33,6 +34,12 @@ var geoipDownloadURLs = []string{
 	"https://cdn.jsdelivr.net/gh/adysec/IP_database@main/geolite/GeoLite2-City.mmdb",
 }
 
+var geoipASNDownloadURLs = []string{
+	"https://raw.githubusercontent.com/adysec/IP_database/main/geolite/GeoLite2-ASN.mmdb",
+	"https://raw.gitmirror.com/adysec/IP_database/main/geolite/GeoLite2-ASN.mmdb",
+	"https://cdn.jsdelivr.net/gh/adysec/IP_database@main/geolite/GeoLite2-ASN.mmdb",
+}
+
 // geoipUpdateInterval is the interval between automatic database updates (24 hours)
 const geoipUpdateInterval = 24 * time.Hour
 
@@ -41,11 +48,15 @@ const geoipMinFileSize = 1024 * 1024
 
 // IPGeoService provides IP geolocation queries using MaxMind GeoLite2
 type IPGeoService struct {
-	cityReader *geoip2.Reader
-	dbPath     string
-	mu         sync.RWMutex
-	available  bool
-	stopCh     chan struct{}
+	cityReader   *geoip2.Reader
+	asnReader    *geoip2.Reader
+	dbPath       string
+	asnDBPath    string
+	mu           sync.RWMutex
+	available    bool
+	asnAvailable bool
+	lastError    string
+	stopCh       chan struct{}
 }
 
 var (
@@ -104,6 +115,7 @@ func (s *IPGeoService) init() {
 			s.cityReader = reader
 			s.dbPath = path
 			s.available = true
+			s.loadASNReader(filepath.Join(filepath.Dir(path), "GeoLite2-ASN.mmdb"))
 			fmt.Printf("[GeoIP] Loaded database: %s\n", path)
 			// Start background updater
 			go s.backgroundUpdater()
@@ -132,6 +144,7 @@ func (s *IPGeoService) init() {
 	s.cityReader = reader
 	s.dbPath = downloadPath
 	s.available = true
+	s.loadASNReader(filepath.Join(filepath.Dir(downloadPath), "GeoLite2-ASN.mmdb"))
 	fmt.Printf("[GeoIP] Database downloaded and loaded: %s\n", downloadPath)
 
 	// Start background updater
@@ -140,6 +153,14 @@ func (s *IPGeoService) init() {
 
 // downloadDatabase downloads the GeoLite2-City.mmdb file from mirror URLs
 func (s *IPGeoService) downloadDatabase(destPath string) error {
+	return s.downloadDatabaseFrom(destPath, geoipDownloadURLs, geoipMinFileSize)
+}
+
+func (s *IPGeoService) downloadASNDatabase(destPath string) error {
+	return s.downloadDatabaseFrom(destPath, geoipASNDownloadURLs, geoipMinFileSize)
+}
+
+func (s *IPGeoService) downloadDatabaseFrom(destPath string, urls []string, minSize int64) error {
 	// Ensure directory exists
 	dir := filepath.Dir(destPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -151,7 +172,7 @@ func (s *IPGeoService) downloadDatabase(destPath string) error {
 
 	client := &http.Client{Timeout: 120 * time.Second}
 
-	for _, url := range geoipDownloadURLs {
+	for _, url := range urls {
 		fmt.Printf("[GeoIP] Downloading from %s ...\n", url)
 
 		resp, err := client.Get(url)
@@ -183,7 +204,7 @@ func (s *IPGeoService) downloadDatabase(destPath string) error {
 		}
 
 		// Validate file size
-		if written < geoipMinFileSize {
+		if written < minSize {
 			fmt.Printf("[GeoIP] Downloaded file too small (%d bytes), skipping\n", written)
 			os.Remove(tempPath)
 			continue
@@ -253,28 +274,49 @@ func (s *IPGeoService) tryUpdateDatabase() {
 	fmt.Println("[GeoIP] Checking for database update...")
 
 	if err := s.downloadDatabase(s.dbPath); err != nil {
+		s.setLastError(err)
 		fmt.Printf("[GeoIP] Update failed: %v\n", err)
 		return
 	}
 
-	// Reload the database
-	newReader, err := geoip2.Open(s.dbPath)
-	if err != nil {
+	if s.asnDBPath == "" {
+		s.asnDBPath = filepath.Join(filepath.Dir(s.dbPath), "GeoLite2-ASN.mmdb")
+	}
+	if err := s.downloadASNDatabase(s.asnDBPath); err != nil {
+		fmt.Printf("[GeoIP] ASN update skipped: %v\n", err)
+	}
+
+	if err := s.Reload(); err != nil {
+		s.setLastError(err)
 		fmt.Printf("[GeoIP] Failed to reload updated database: %v\n", err)
 		return
 	}
 
-	s.mu.Lock()
-	oldReader := s.cityReader
-	s.cityReader = newReader
-	s.available = true
-	s.mu.Unlock()
-
-	if oldReader != nil {
-		oldReader.Close()
-	}
-
 	fmt.Println("[GeoIP] Database updated and reloaded successfully")
+}
+
+func (s *IPGeoService) loadASNReader(path string) {
+	s.asnDBPath = path
+	if path == "" {
+		return
+	}
+	reader, err := geoip2.Open(path)
+	if err != nil {
+		return
+	}
+	s.asnReader = reader
+	s.asnAvailable = true
+	fmt.Printf("[GeoIP] Loaded ASN database: %s\n", path)
+}
+
+func (s *IPGeoService) setLastError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err == nil {
+		s.lastError = ""
+		return
+	}
+	s.lastError = err.Error()
 }
 
 // IsAvailable returns whether the GeoIP service is available
@@ -290,8 +332,10 @@ func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
+		result.IPVersion = "unknown"
 		return result
 	}
+	result.IPVersion = GetIPVersion(ip)
 
 	// Skip private IPs
 	if parsedIP.IsPrivate() || parsedIP.IsLoopback() {
@@ -303,39 +347,48 @@ func (s *IPGeoService) QuerySingle(ip string) IPGeoInfo {
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if !s.available || s.cityReader == nil {
-		return result
-	}
+	if s.available && s.cityReader != nil {
+		record, err := s.cityReader.City(parsedIP)
+		if err == nil {
+			result.Success = true
 
-	record, err := s.cityReader.City(parsedIP)
-	if err != nil {
-		return result
-	}
+			// Country
+			if name, ok := record.Country.Names["zh-CN"]; ok {
+				result.Country = name
+			} else if name, ok := record.Country.Names["en"]; ok {
+				result.Country = name
+			}
+			result.CountryCode = record.Country.IsoCode
 
-	result.Success = true
+			// Region/Province
+			if len(record.Subdivisions) > 0 {
+				if name, ok := record.Subdivisions[0].Names["zh-CN"]; ok {
+					result.Region = name
+				} else if name, ok := record.Subdivisions[0].Names["en"]; ok {
+					result.Region = name
+				}
+			}
 
-	// Country
-	if name, ok := record.Country.Names["zh-CN"]; ok {
-		result.Country = name
-	} else if name, ok := record.Country.Names["en"]; ok {
-		result.Country = name
-	}
-	result.CountryCode = record.Country.IsoCode
-
-	// Region/Province
-	if len(record.Subdivisions) > 0 {
-		if name, ok := record.Subdivisions[0].Names["zh-CN"]; ok {
-			result.Region = name
-		} else if name, ok := record.Subdivisions[0].Names["en"]; ok {
-			result.Region = name
+			// City
+			if name, ok := record.City.Names["zh-CN"]; ok {
+				result.City = name
+			} else if name, ok := record.City.Names["en"]; ok {
+				result.City = name
+			}
 		}
 	}
 
-	// City
-	if name, ok := record.City.Names["zh-CN"]; ok {
-		result.City = name
-	} else if name, ok := record.City.Names["en"]; ok {
-		result.City = name
+	if s.asnAvailable && s.asnReader != nil {
+		if asn, err := s.asnReader.ASN(parsedIP); err == nil {
+			if asn.AutonomousSystemNumber > 0 {
+				result.ASN = fmt.Sprintf("AS%d", asn.AutonomousSystemNumber)
+			}
+			result.Org = asn.AutonomousSystemOrganization
+			result.ISP = asn.AutonomousSystemOrganization
+			if result.Org != "" {
+				result.Success = true
+			}
+		}
 	}
 
 	return result
@@ -403,6 +456,94 @@ func SetIPGeoServiceProviderForTesting(provider func() *IPGeoService) func() {
 }
 
 // Close releases the GeoIP database resources and stops the background updater
+// GetIPVersion returns v4, v6, or unknown.
+func GetIPVersion(ip string) string {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return "unknown"
+	}
+	if parsedIP.To4() != nil {
+		return "v4"
+	}
+	return "v6"
+}
+
+// GetStatus returns GeoIP database status.
+func (s *IPGeoService) GetStatus() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return map[string]interface{}{
+		"city_available": s.available,
+		"asn_available":  s.asnAvailable,
+		"city_db_path":   s.dbPath,
+		"asn_db_path":    s.asnDBPath,
+		"last_error":     s.lastError,
+	}
+}
+
+// Reload reloads City and ASN databases from disk.
+func (s *IPGeoService) Reload() error {
+	if s.dbPath == "" {
+		return fmt.Errorf("city database path is empty")
+	}
+	cityReader, err := geoip2.Open(s.dbPath)
+	if err != nil {
+		return err
+	}
+	var asnReader *geoip2.Reader
+	asnAvailable := false
+	if s.asnDBPath == "" {
+		s.asnDBPath = filepath.Join(filepath.Dir(s.dbPath), "GeoLite2-ASN.mmdb")
+	}
+	if s.asnDBPath != "" {
+		if reader, asnErr := geoip2.Open(s.asnDBPath); asnErr == nil {
+			asnReader = reader
+			asnAvailable = true
+		}
+	}
+
+	s.mu.Lock()
+	oldCity := s.cityReader
+	oldASN := s.asnReader
+	s.cityReader = cityReader
+	s.asnReader = asnReader
+	s.available = true
+	s.asnAvailable = asnAvailable
+	s.lastError = ""
+	s.mu.Unlock()
+
+	if oldCity != nil {
+		oldCity.Close()
+	}
+	if oldASN != nil {
+		oldASN.Close()
+	}
+	return nil
+}
+
+// IsDualStackPair checks whether IPv4 and IPv6 likely belong to the same network location.
+func (s *IPGeoService) IsDualStackPair(ip1, ip2 string) bool {
+	version1 := GetIPVersion(ip1)
+	version2 := GetIPVersion(ip2)
+	if version1 == "unknown" || version2 == "unknown" || version1 == version2 {
+		return false
+	}
+	info1 := s.QuerySingle(ip1)
+	info2 := s.QuerySingle(ip2)
+	if !info1.Success || !info2.Success {
+		return false
+	}
+	if info1.ASN != "" && info2.ASN != "" {
+		return info1.ASN == info2.ASN && info1.CountryCode == info2.CountryCode
+	}
+	return info1.CountryCode != "" && info1.CountryCode == info2.CountryCode && info1.Region == info2.Region && info1.City == info2.City
+}
+
+// IsDualStackPair checks whether IPv4 and IPv6 likely belong to the same network location.
+func IsDualStackPair(ip1, ip2 string) bool {
+	return ipGeoServiceProvider().IsDualStackPair(ip1, ip2)
+}
+
 func (s *IPGeoService) Close() {
 	// Stop background updater
 	if s.stopCh != nil {
@@ -420,5 +561,10 @@ func (s *IPGeoService) Close() {
 		s.cityReader.Close()
 		s.cityReader = nil
 		s.available = false
+	}
+	if s.asnReader != nil {
+		s.asnReader.Close()
+		s.asnReader = nil
+		s.asnAvailable = false
 	}
 }
