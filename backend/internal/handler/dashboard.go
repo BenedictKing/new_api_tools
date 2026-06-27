@@ -138,23 +138,37 @@ func InvalidateDashboardCache(c *gin.Context) {
 
 // GET /api/dashboard/refresh-estimate
 func GetRefreshEstimate(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"show_estimate":  false,
-			"estimated_time": 0,
-		},
-	})
+	period := c.DefaultQuery("period", "24h")
+	data, err := service.NewSystemService().GetRefreshEstimate(period)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"message": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // GET /api/dashboard/system-info
 func GetDashboardSystemInfo(c *gin.Context) {
+	data, err := service.NewSystemService().DetectScale(false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"message": err.Error()}})
+		return
+	}
+	isLarge := data.Scale == service.ScaleLarge || data.Scale == service.ScaleXLarge
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"scale":     "medium",
-			"cache_ttl": 300,
-			"tips":      []string{},
+			"scale":           data.Scale,
+			"is_large_system": isLarge,
+			"metrics":         data.Metrics,
+			"settings":        data.Settings,
+			"cache_ttl":       data.Settings.CacheTTL,
+			"tips": gin.H{
+				"refresh_warning":      isLarge,
+				"logs_24h_formatted":   data.Metrics.Logs24h,
+				"message":              data.Settings.Description,
+				"recommended_interval": data.Settings.FrontendRefreshInterval,
+			},
 		},
 	})
 }

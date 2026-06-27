@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/new-api-tools/backend/internal/database"
+	"github.com/new-api-tools/backend/internal/service"
+	"github.com/new-api-tools/backend/internal/tasks"
 )
 
 // RegisterSystemRoutes registers /api/system endpoints
@@ -20,47 +22,29 @@ func RegisterSystemRoutes(r *gin.RouterGroup) {
 	}
 }
 
-// GET /api/system/scale — placeholder until system_scale service is migrated
+// GET /api/system/scale
 func GetSystemScale(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"scale": "medium",
-			"metrics": gin.H{
-				"total_users": 0,
-				"total_logs":  0,
-			},
-			"settings": gin.H{
-				"cache_ttl":                 300,
-				"refresh_interval":          300,
-				"frontend_refresh_interval": 60,
-				"description":               "中型系统",
-			},
-		},
-	})
+	data, err := service.NewSystemService().DetectScale(false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"message": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // POST /api/system/scale/refresh
 func RefreshSystemScale(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"scale":   "medium",
-			"message": "Scale detection refreshed",
-		},
-	})
+	data, err := service.NewSystemService().DetectScale(true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"message": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // GET /api/system/warmup-status
 func GetWarmupStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"status":   "ready",
-			"progress": 100,
-			"message":  "System is ready",
-		},
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": tasks.GetManager().GetWarmupStatus()})
 }
 
 // GET /api/system/indexes
