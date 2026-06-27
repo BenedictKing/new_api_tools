@@ -2,7 +2,7 @@
 # Multi-stage build for minimal production image
 #
 # 构建缓存: 使用 BuildKit 缓存挂载加速二次构建
-#   DOCKER_BUILDKIT=1 docker build -t backend-go .
+#   DOCKER_BUILDKIT=1 docker build -t newapi-tools-backend .
 
 # syntax=docker/dockerfile:1
 

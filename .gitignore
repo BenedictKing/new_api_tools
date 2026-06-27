@@ -69,6 +69,17 @@ dist-ssr/
 htmlcov/
 .pytest_cache/
 coverage/
+coverage.out
+coverage.html
+*.test
+*.out
+
+# Go
+.gocache/
+.gomodcache/
+backend/tmp/
+backend/build-errors.log
+backend/newapi-tools-backend
 
 # Docker
 docker-compose.override.yml
