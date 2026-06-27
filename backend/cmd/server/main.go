@@ -18,7 +18,7 @@ import (
 	"github.com/new-api-tools/backend/internal/handler"
 	"github.com/new-api-tools/backend/internal/logger"
 	"github.com/new-api-tools/backend/internal/middleware"
-	"github.com/new-api-tools/backend/internal/service"
+	"github.com/new-api-tools/backend/internal/tasks"
 )
 
 func main() {
@@ -38,18 +38,6 @@ func main() {
 		logger.L.Fatal("数据库初始化失败: " + err.Error())
 	}
 	defer database.Close()
-
-	// Ensure indexes (background, with delay to reduce load)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.L.Error(fmt.Sprintf("索引创建 goroutine panic: %v", r))
-			}
-		}()
-		time.Sleep(2 * time.Second)
-		db := database.Get()
-		db.EnsureIndexes(true, 500*time.Millisecond)
-	}()
 
 	// ========== 4. Initialize Redis cache ==========
 	if cfg.RedisConnString != "" {
@@ -119,13 +107,12 @@ func main() {
 	frontend.ServeFrontend(r)
 
 	// ========== 7. Background tasks ==========
-
-	// IP recording enforcement: check every 10 minutes, enable if any user disabled it
-	stopIPEnforce := make(chan struct{})
-	go backgroundEnforceIPRecording(stopIPEnforce)
-
-	stopAbuseBroadcast := make(chan struct{})
-	go backgroundSyncAbuseBroadcast(stopAbuseBroadcast)
+	taskManager, err := tasks.InitDefaultTasks()
+	if err != nil {
+		logger.L.Fatal("后台任务初始化失败: " + err.Error())
+	}
+	taskManager.Start()
+	defer taskManager.Stop()
 
 	// ========== 8. Start server with graceful shutdown ==========
 	srv := &http.Server{
@@ -152,8 +139,7 @@ func main() {
 	logger.L.System("正在优雅关闭服务...")
 
 	// Stop background tasks
-	close(stopIPEnforce)
-	close(stopAbuseBroadcast)
+	taskManager.Stop()
 
 	// Give the server 10 seconds to finish processing requests
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -167,165 +153,3 @@ func main() {
 }
 
 // backgroundEnforceIPRecording periodically checks and enforces IP recording for all users.
-func backgroundEnforceIPRecording(stop <-chan struct{}) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.L.Error(fmt.Sprintf("[IP记录] 后台任务 panic: %v", r))
-		}
-	}()
-
-	// Wait 30 seconds after startup before first check
-	select {
-	case <-time.After(30 * time.Second):
-	case <-stop:
-		return
-	}
-
-	logger.L.System("[IP记录] 强制开启定时任务已启动 (间隔: 10分钟)")
-
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-
-	// Run immediately on first tick, then every 10 minutes
-	for {
-		enforceIPRecordingOnce()
-
-		select {
-		case <-ticker.C:
-		case <-stop:
-			logger.L.System("[IP记录] 强制开启定时任务已停止")
-			return
-		}
-	}
-}
-
-func enforceIPRecordingOnce() {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.L.Error(fmt.Sprintf("[IP记录] 检查执行 panic: %v", r))
-		}
-	}()
-
-	svc := service.NewIPMonitoringService()
-
-	stats, err := svc.GetIPStats()
-	if err != nil {
-		logger.L.Warn("[IP记录] 获取状态失败: " + err.Error())
-		return
-	}
-
-	disabledCount := toInt64(stats["disabled_count"])
-	totalUsers := toInt64(stats["total_users"])
-
-	if disabledCount == 0 {
-		logger.L.Debug(fmt.Sprintf("[IP记录] 所有用户 (%d) 已开启 IP 记录，无需操作", totalUsers))
-		return
-	}
-
-	logger.L.System(fmt.Sprintf("[IP记录] 检测到 %d 个用户关闭了 IP 记录，正在强制开启...", disabledCount))
-
-	result, err := svc.EnableAllIPRecording()
-	if err != nil {
-		logger.L.Warn("[IP记录] 强制开启失败: " + err.Error())
-		return
-	}
-
-	logger.L.Success(fmt.Sprintf("[IP记录] %s", result["message"]))
-}
-
-// backgroundSyncAbuseBroadcast supervises the Hub pull loop. It re-reads the
-// runtime settings on every tick so admins can toggle enabled/interval from the
-// frontend without a restart.
-func backgroundSyncAbuseBroadcast(stop <-chan struct{}) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.L.Error(fmt.Sprintf("[违规广播] 后台同步任务 panic: %v", r))
-		}
-	}()
-
-	select {
-	case <-time.After(20 * time.Second):
-	case <-stop:
-		return
-	}
-
-	logger.L.System("[违规广播] Hub 同步监督任务已启动")
-
-	const idleInterval = 60 * time.Second
-	currentInterval := idleInterval
-	timer := time.NewTimer(currentInterval)
-	defer timer.Stop()
-
-	loadInterval := func() (time.Duration, bool) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		settings, err := service.NewAbuseBroadcastService().GetSettings(ctx)
-		if err != nil {
-			logger.L.Debug("[违规广播] 读取配置失败: " + err.Error())
-			return idleInterval, false
-		}
-		if !settings.Enabled {
-			return idleInterval, false
-		}
-		seconds := settings.PullIntervalSeconds
-		if seconds <= 0 {
-			seconds = 300
-		}
-		return time.Duration(seconds) * time.Second, true
-	}
-
-	for {
-		select {
-		case <-timer.C:
-			next, active := loadInterval()
-			if active {
-				syncAbuseBroadcastOnce()
-			}
-			if next != currentInterval {
-				logger.L.System(fmt.Sprintf("[违规广播] 调整同步间隔为 %s (active=%v)", next, active))
-				currentInterval = next
-			}
-			timer.Reset(currentInterval)
-		case <-stop:
-			logger.L.System("[违规广播] Hub 同步监督任务已停止")
-			return
-		}
-	}
-}
-
-func syncAbuseBroadcastOnce() {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.L.Error(fmt.Sprintf("[违规广播] 同步执行 panic: %v", r))
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	result, err := service.NewAbuseBroadcastService().SyncOnce(ctx)
-	if err != nil {
-		logger.L.Warn("[违规广播] 同步失败: " + err.Error())
-		return
-	}
-	if result.PulledEvents > 0 {
-		logger.L.Success(fmt.Sprintf("[违规广播] 已同步 %d 个事件，写入 %d 条通报，cursor=%d",
-			result.PulledEvents, result.StoredReports, result.NextCursor))
-	}
-}
-
-func toInt64(v interface{}) int64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case int64:
-		return val
-	case int:
-		return int64(val)
-	case float64:
-		return int64(val)
-	default:
-		return 0
-	}
-}
