@@ -33,6 +33,8 @@ type Manager struct {
 	rdb        *redis.Client
 	localCache sync.Map // level-1 local cache (stores *localEntry)
 	ctx        context.Context
+	cancel     context.CancelFunc
+	cleanupWG  sync.WaitGroup
 
 	// Stats — use atomic for lock-free incrementing
 	hits   int64
@@ -44,7 +46,7 @@ var mgr *Manager
 
 // Init creates the cache manager and connects to Redis
 func Init(connString string) (*Manager, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Parse Redis connection string
 	opt, err := redis.ParseURL(connString)
@@ -67,11 +69,13 @@ func Init(connString string) (*Manager, error) {
 	}
 
 	mgr = &Manager{
-		rdb: rdb,
-		ctx: ctx,
+		rdb:    rdb,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	// Start local cache cleanup goroutine
+	mgr.cleanupWG.Add(1)
 	go mgr.cleanupExpiredEntries()
 
 	logger.L.System("Redis 连接成功")
@@ -80,15 +84,21 @@ func Init(connString string) (*Manager, error) {
 
 // cleanupExpiredEntries periodically removes expired local cache entries
 func (m *Manager) cleanupExpiredEntries() {
+	defer m.cleanupWG.Done()
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		m.localCache.Range(func(key, value interface{}) bool {
-			if entry, ok := value.(*localEntry); ok && entry.isExpired() {
-				m.localCache.Delete(key)
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			m.localCache.Range(func(key, value interface{}) bool {
+				if entry, ok := value.(*localEntry); ok && entry.isExpired() {
+					m.localCache.Delete(key)
+				}
+				return true
+			})
+		case <-m.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -111,7 +121,14 @@ var noop = Manager{}
 
 // Close closes the Redis connection
 func Close() error {
-	if mgr != nil && mgr.rdb != nil {
+	if mgr == nil {
+		return nil
+	}
+	if mgr.cancel != nil {
+		mgr.cancel()
+		mgr.cleanupWG.Wait()
+	}
+	if mgr.rdb != nil {
 		return mgr.rdb.Close()
 	}
 	return nil
