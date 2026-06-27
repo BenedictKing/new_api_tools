@@ -4,11 +4,14 @@ export function createModelStatusApi(client: AuthClient) {
   return {
     models: () =>
       client.GET('/model-status/models', {}),
-    status: (params?: { window?: string }) =>
+    status: (params?: { window?: string; group?: string; token_group?: string; no_cache?: boolean }) =>
       client.GET('/model-status/status', { params: { query: params } }),
-    statusBatch: (body: { models: string[]; window?: string }) =>
-      client.POST('/model-status/status/batch', { body: body as never }),
-    statusByModel: (model_name: string, params?: { window?: string }) =>
+    statusBatch: (body: { models: string[]; group?: string; token_group?: string; no_cache?: boolean; window?: string }) =>
+      client.POST('/model-status/status/batch', {
+        params: { query: { window: body.window, group: body.group, token_group: body.token_group, no_cache: body.no_cache } },
+        body: { models: body.models } as never,
+      }),
+    statusByModel: (model_name: string, params?: { window?: string; group?: string; token_group?: string; no_cache?: boolean }) =>
       client.GET('/model-status/status/{model_name}', {
         params: { path: { model_name }, query: params },
       }),
@@ -31,11 +34,14 @@ export function createModelStatusApi(client: AuthClient) {
     // Embed（公开）接口
     embedModels: () =>
       client.GET('/model-status/embed/models', {}),
-    embedStatus: (params?: { window?: string }) =>
+    embedStatus: (params?: { window?: string; group?: string; token_group?: string; no_cache?: boolean }) =>
       client.GET('/model-status/embed/status', { params: { query: params } }),
-    embedStatusBatch: (body: { models: string[]; window?: string }) =>
-      client.POST('/model-status/embed/status/batch', { body: body as never }),
-    embedStatusByModel: (model_name: string, params?: { window?: string }) =>
+    embedStatusBatch: (body: { models: string[]; group?: string; token_group?: string; no_cache?: boolean; window?: string }) =>
+      client.POST('/model-status/embed/status/batch', {
+        params: { query: { window: body.window, group: body.group, token_group: body.token_group, no_cache: body.no_cache } },
+        body: { models: body.models } as never,
+      }),
+    embedStatusByModel: (model_name: string, params?: { window?: string; group?: string; token_group?: string; no_cache?: boolean }) =>
       client.GET('/model-status/embed/status/{model_name}', {
         params: { path: { model_name }, query: params },
       }),

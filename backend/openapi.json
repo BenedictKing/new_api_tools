@@ -2592,7 +2592,33 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
       }
     },
     "/embed/model-status/status": {
@@ -2609,6 +2635,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2650,6 +2700,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2681,6 +2755,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2711,6 +2809,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2763,6 +2885,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2826,7 +2972,7 @@
         "tags": [
           "模型状态"
         ],
-        "summary": "获取嵌入状态页令牌分组",
+        "summary": "获取令牌计费分组",
         "responses": {
           "200": {
             "description": "OK",
@@ -4780,7 +4926,33 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
       }
     },
     "/model-status/embed/status": {
@@ -4797,6 +4969,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -4838,6 +5034,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -4868,6 +5088,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -4911,7 +5155,7 @@
         "tags": [
           "模型状态"
         ],
-        "summary": "获取嵌入状态页令牌分组",
+        "summary": "获取令牌计费分组",
         "responses": {
           "200": {
             "description": "OK",
@@ -4968,7 +5212,33 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
       }
     },
     "/model-status/selected": {
@@ -5042,6 +5312,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5087,6 +5381,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5123,6 +5441,30 @@
               "type": "string",
               "default": "24h"
             }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5158,6 +5500,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -5215,6 +5581,30 @@
             "schema": {
               "type": "string",
               "default": "24h"
+            }
+          },
+          {
+            "description": "令牌分组（tokens.group），为空或 all 表示全局统计",
+            "name": "group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "令牌分组别名；group 为空时生效",
+            "name": "token_group",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "是否跳过模型状态缓存",
+            "name": "no_cache",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -5283,7 +5673,7 @@
         "tags": [
           "模型状态"
         ],
-        "summary": "获取模型状态令牌分组",
+        "summary": "获取模型状态令牌计费分组",
         "responses": {
           "200": {
             "description": "OK",

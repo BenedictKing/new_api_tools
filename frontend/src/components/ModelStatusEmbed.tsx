@@ -832,6 +832,7 @@ export function ModelStatusEmbed({
   const [countdown, setCountdown] = useState(defaultRefreshInterval)
   const [timeWindow, setTimeWindow] = useState('24h')
   const [theme, setTheme] = useState<ThemeId>(defaultTheme || 'daylight')
+  const [tokenGroup, setTokenGroup] = useState('')
 
   // Tooltip state - lifted to parent to avoid z-index/transform issues
   const [hoveredSlot, setHoveredSlot] = useState<SlotStatus | null>(null)
@@ -840,13 +841,14 @@ export function ModelStatusEmbed({
   const apiUrl = import.meta.env.VITE_API_URL || ''
   const styles = themeStyles[theme] || themeStyles.daylight
 
-  // Parse URL params for theme override
+  // Parse URL params for theme and token group overrides
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const urlTheme = urlParams.get('theme') as ThemeId
     if (urlTheme && THEMES.find(t => t.id === urlTheme)) {
       setTheme(urlTheme)
     }
+    setTokenGroup(urlParams.get('group') || urlParams.get('token_group') || '')
   }, [])
 
   // Load config from backend
@@ -895,7 +897,11 @@ export function ModelStatusEmbed({
     }
 
     try {
-      const response = await fetch(`${apiUrl}/api/model-status/embed/status/batch?window=${timeWindow}`, {
+      const params = new URLSearchParams({ window: timeWindow })
+      if (tokenGroup) {
+        params.set('group', tokenGroup)
+      }
+      const response = await fetch(`${apiUrl}/api/model-status/embed/status/batch?${params.toString()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(selectedModels),
@@ -910,7 +916,7 @@ export function ModelStatusEmbed({
     } finally {
       setLoading(false)
     }
-  }, [apiUrl, selectedModels, timeWindow])
+  }, [apiUrl, selectedModels, timeWindow, tokenGroup])
 
   useEffect(() => {
     if (selectedModels.length > 0) {

@@ -163,10 +163,12 @@ const MODEL_LOGO_MAP: Record<string, IconComponent> = {
   'zai': ZAI,
 }
 
-// Token group from abilities table (system-defined)
+// Token billing group from tokens.group
 interface TokenGroup {
   group_name: string
   model_count: number
+  token_count?: number
+  active_count?: number
   models: string[]
 }
 
@@ -693,15 +695,16 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
   const fetchModelStatuses = useCallback(async (forceRefresh = false) => {
     // 计算实际要请求状态的模型集合：
     //   - 用户手工选中的 selectedModels（基础）
-    //   - 当前过滤器若为某个密钥分组（token:X），把该分组下的全部模型并入
-    // 这样选中密钥分组时，分组下所有模型会自动出现在监控视图中，无需手动勾选。
+    //   - 当前过滤器若为某个令牌计费分组（token:X），把该分组的候选模型并入
+    // 统计口径以后端 group 参数为准，tokenGroups.models 只用于补充候选模型。
+    const activeTokenGroup = groupFilter.startsWith('token:') ? groupFilter.slice(6) : ''
     const tokenGroupModels = (() => {
-      if (!groupFilter.startsWith('token:')) return [] as string[]
-      const name = groupFilter.slice(6)
-      const tg = tokenGroups.find(g => g.group_name === name)
+      if (!activeTokenGroup) return [] as string[]
+      const tg = tokenGroups.find(g => g.group_name === activeTokenGroup)
       return tg ? tg.models : []
     })()
-    const fetchSet = Array.from(new Set([...selectedModels, ...tokenGroupModels]))
+    const baseModels = activeTokenGroup ? availableModels.map(m => m.model_name) : selectedModels
+    const fetchSet = Array.from(new Set([...baseModels, ...tokenGroupModels]))
 
     if (fetchSet.length === 0) {
       setModelStatuses([])
@@ -719,8 +722,14 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
 
     try {
       // Add no_cache=true when force refreshing to bypass backend cache
-      const cacheParam = forceRefresh ? '&no_cache=true' : ''
-      const response = await fetch(`${apiUrl}${getApiPrefix()}/status/batch?window=${timeWindow}${cacheParam}`, {
+      const params = new URLSearchParams({ window: timeWindow })
+      if (forceRefresh) {
+        params.set('no_cache', 'true')
+      }
+      if (activeTokenGroup) {
+        params.set('group', activeTokenGroup)
+      }
+      const response = await fetch(`${apiUrl}${getApiPrefix()}/status/batch?${params.toString()}`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(fetchSet),
@@ -739,7 +748,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
       setLoading(false)
       setRefreshing(false)
     }
-  }, [apiUrl, getApiPrefix, getAuthHeaders, selectedModels, timeWindow, isEmbed, showToast, groupFilter, tokenGroups, availableModels.length])
+  }, [apiUrl, getApiPrefix, getAuthHeaders, selectedModels, timeWindow, isEmbed, showToast, groupFilter, tokenGroups, availableModels])
 
   // Initial load
   useEffect(() => {
@@ -944,12 +953,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
     // Apply group filter
     if (groupFilter !== 'all') {
       if (groupFilter.startsWith('token:')) {
-        // 令牌分组过滤
-        const tokenGroupName = groupFilter.slice(6)
-        const tg = tokenGroups.find(g => g.group_name === tokenGroupName)
-        if (tg) {
-          result = result.filter(m => tg.models.includes(m.model_name))
-        }
+        // 令牌计费分组的统计口径已经由后端 group 参数保证，这里不再用模型列表强制过滤。
       } else {
         // 自定义分组过滤（精确名 + 厂商关键字模糊匹配）
         const group = customGroups.find(g => g.id === groupFilter)
@@ -965,7 +969,7 @@ export function ModelStatusMonitor({ isEmbed = false }: ModelStatusMonitorProps)
     }
 
     return result
-  }, [modelStatuses, sortMode, customOrder, statusFilter, groupFilter, customGroups, tokenGroups])
+  }, [modelStatuses, sortMode, customOrder, statusFilter, groupFilter, customGroups])
 
   // Handle drag end for reordering
   const handleDragEnd = (event: DragEndEvent) => {

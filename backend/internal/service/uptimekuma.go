@@ -272,7 +272,7 @@ func (s *UptimeKumaService) GetSummaryData(slug, window string) (*SummaryData, e
 }
 
 func (s *UptimeKumaService) allModelStatuses(window string) ([]map[string]interface{}, error) {
-	models, err := s.modelStatusService.GetAvailableModels()
+	models, err := s.modelStatusService.GetAvailableModels("all", false)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (s *UptimeKumaService) allModelStatuses(window string) ([]map[string]interf
 			names = append(names, name)
 		}
 	}
-	return s.modelStatusService.GetMultipleModelsStatus(names, window)
+	return s.modelStatusService.GetMultipleModelsStatus(names, window, "all", false)
 }
 
 func readStatusSlots(raw interface{}) []map[string]interface{} {

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/new-api-tools/backend/internal/cache"
@@ -38,6 +41,13 @@ type timeWindowConfig struct {
 	slotSeconds  int64
 }
 
+type modelStatusSlotInfo struct {
+	total   int64
+	success int64
+	failure int64
+	empty   int64
+}
+
 var timeWindowConfigs = map[string]timeWindowConfig{
 	"1h":  {3600, 60, 60},    // 1 hour, 60 slots, 1 minute each
 	"6h":  {21600, 24, 900},  // 6 hours, 24 slots, 15 minutes each
@@ -63,10 +73,172 @@ func roundRate(rate float64) float64 {
 	return math.Round(rate*100) / 100
 }
 
+func normalizeModelStatusGroup(group string) string {
+	group = strings.TrimSpace(group)
+	if group == "" || strings.EqualFold(group, "all") {
+		return "all"
+	}
+	if strings.EqualFold(group, "default") {
+		return "default"
+	}
+	return group
+}
+
+func modelStatusCachePart(value string) string {
+	if value == "" {
+		return "empty"
+	}
+	return url.QueryEscape(value)
+}
+
+func chunkInt64s(values []int64, size int) [][]int64 {
+	if size <= 0 || len(values) <= size {
+		return [][]int64{values}
+	}
+	chunks := make([][]int64, 0, (len(values)+size-1)/size)
+	for start := 0; start < len(values); start += size {
+		end := start + size
+		if end > len(values) {
+			end = len(values)
+		}
+		chunks = append(chunks, values[start:end])
+	}
+	return chunks
+}
+
 // ModelStatusService handles model availability monitoring
 type ModelStatusService struct {
 	db    *database.Manager
 	logDB *database.Manager
+}
+
+func (s *ModelStatusService) normalizedTokenGroupExpr(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return fmt.Sprintf("COALESCE(NULLIF(%s%s, ''), 'default')", prefix, s.getGroupCol())
+}
+
+func (s *ModelStatusService) tokenIDsForGroup(group string) ([]int64, error) {
+	group = normalizeModelStatusGroup(group)
+	if group == "all" {
+		return nil, nil
+	}
+
+	query := s.db.RebindQuery(fmt.Sprintf(`
+		SELECT id
+		FROM tokens
+		WHERE %s = ?`, s.normalizedTokenGroupExpr("")))
+	rows, err := s.db.Query(query, group)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		id := toInt64(row["id"])
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (s *ModelStatusService) appendTokenIDFilter(conditions []string, args []interface{}, tokenIDs []int64) ([]string, []interface{}) {
+	if len(tokenIDs) == 0 {
+		return append(conditions, "1 = 0"), args
+	}
+
+	placeholders := make([]string, 0, len(tokenIDs))
+	for _, id := range tokenIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	conditions = append(conditions, fmt.Sprintf("l.token_id IN (%s)", strings.Join(placeholders, ",")))
+	return conditions, args
+}
+
+func (s *ModelStatusService) groupModelsFromLogs(group string, startTime int64) ([]string, error) {
+	group = normalizeModelStatusGroup(group)
+	if group == "all" {
+		return []string{}, nil
+	}
+
+	tokenIDs, err := s.tokenIDsForGroup(group)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokenIDs) == 0 {
+		return []string{}, nil
+	}
+
+	seen := map[string]bool{}
+	for _, chunk := range chunkInt64s(tokenIDs, 500) {
+		conditions := []string{"l.type IN (2, 5)", "l.model_name != ''", "l.created_at >= ?"}
+		args := []interface{}{startTime}
+		conditions, args = s.appendTokenIDFilter(conditions, args, chunk)
+
+		query := s.logDB.RebindQuery(fmt.Sprintf(`
+			SELECT DISTINCT l.model_name
+			FROM logs l
+			WHERE %s
+			ORDER BY l.model_name`, strings.Join(conditions, " AND ")))
+		rows, err := s.logDB.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if name, ok := row["model_name"].(string); ok && name != "" {
+				seen[name] = true
+			}
+		}
+	}
+
+	models := make([]string, 0, len(seen))
+	for name := range seen {
+		models = append(models, name)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
+func (s *ModelStatusService) queryAvailableModels(startTime int64, tokenIDs []int64) ([]map[string]interface{}, error) {
+	conditions := []string{"l.type IN (2, 5)", "l.model_name != ''", "l.created_at >= ?"}
+	args := []interface{}{startTime}
+	if tokenIDs != nil {
+		conditions, args = s.appendTokenIDFilter(conditions, args, tokenIDs)
+	}
+
+	query := s.logDB.RebindQuery(fmt.Sprintf(`
+		SELECT l.model_name, COUNT(*) as request_count_24h
+		FROM logs l
+		WHERE %s
+		GROUP BY l.model_name
+		ORDER BY request_count_24h DESC`, strings.Join(conditions, " AND ")))
+	return s.logDB.Query(query, args...)
+}
+
+func (s *ModelStatusService) queryModelStatusRows(modelName string, startTime, now, slotSeconds int64, tokenIDs []int64) ([]map[string]interface{}, error) {
+	conditions := []string{"l.model_name = ?", "l.created_at >= ?", "l.created_at < ?", "l.type IN (2, 5)"}
+	args := []interface{}{modelName, startTime, now}
+	if tokenIDs != nil {
+		conditions, args = s.appendTokenIDFilter(conditions, args, tokenIDs)
+	}
+
+	slotQuery := s.logDB.RebindQuery(fmt.Sprintf(`
+		SELECT FLOOR((l.created_at - %d) / %d) as slot_idx,
+			COUNT(*) as total,
+			SUM(CASE WHEN l.type = 2 AND l.completion_tokens > 0 THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN l.type = 5 THEN 1 ELSE 0 END) as failure,
+			SUM(CASE WHEN l.type = 2 AND l.completion_tokens = 0 THEN 1 ELSE 0 END) as empty
+		FROM logs l
+		WHERE %s
+		GROUP BY FLOOR((l.created_at - %d) / %d)`,
+		startTime, slotSeconds,
+		strings.Join(conditions, " AND "),
+		startTime, slotSeconds))
+	return s.logDB.Query(slotQuery, args...)
 }
 
 // NewModelStatusService creates a new ModelStatusService
@@ -75,40 +247,64 @@ func NewModelStatusService() *ModelStatusService {
 }
 
 // GetAvailableModels returns all models with 24h request counts
-func (s *ModelStatusService) GetAvailableModels() ([]map[string]interface{}, error) {
+func (s *ModelStatusService) GetAvailableModels(group string, noCache bool) ([]map[string]interface{}, error) {
+	group = normalizeModelStatusGroup(group)
+	cacheKey := fmt.Sprintf("model_status:available_models:%s", modelStatusCachePart(group))
 	cm := cache.Get()
 	var cached []map[string]interface{}
-	found, _ := cm.GetJSON("model_status:available_models", &cached)
-	if found {
+	found, _ := cm.GetJSON(cacheKey, &cached)
+	if found && !noCache {
 		return cached, nil
 	}
 
 	startTime := time.Now().Unix() - 86400
-
-	query := s.logDB.RebindQuery(`
-		SELECT model_name, COUNT(*) as request_count_24h
-		FROM logs
-		WHERE type IN (2, 5) AND model_name != '' AND created_at >= ?
-		GROUP BY model_name
-		ORDER BY request_count_24h DESC`)
-
-	rows, err := s.logDB.Query(query, startTime)
-	if err != nil {
-		return nil, err
+	var rows []map[string]interface{}
+	if group == "all" {
+		var err error
+		rows, err = s.queryAvailableModels(startTime, nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		tokenIDs, err := s.tokenIDsForGroup(group)
+		if err != nil {
+			return nil, err
+		}
+		counts := map[string]int64{}
+		for _, chunk := range chunkInt64s(tokenIDs, 500) {
+			chunkRows, err := s.queryAvailableModels(startTime, chunk)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range chunkRows {
+				name, _ := row["model_name"].(string)
+				if name != "" {
+					counts[name] += toInt64(row["request_count_24h"])
+				}
+			}
+		}
+		rows = make([]map[string]interface{}, 0, len(counts))
+		for name, count := range counts {
+			rows = append(rows, map[string]interface{}{"model_name": name, "request_count_24h": count})
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			return toInt64(rows[i]["request_count_24h"]) > toInt64(rows[j]["request_count_24h"])
+		})
 	}
 
-	cm.Set("model_status:available_models", rows, 5*time.Minute)
+	cm.Set(cacheKey, rows, 5*time.Minute)
 	return rows, nil
 }
 
 // GetModelStatus returns status for a specific model
 // Uses a single GROUP BY FLOOR query (matches Python backend optimization)
-func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[string]interface{}, error) {
-	cacheKey := fmt.Sprintf("model_status:%s:%s", modelName, window)
+func (s *ModelStatusService) GetModelStatus(modelName, window, group string, noCache bool) (map[string]interface{}, error) {
+	group = normalizeModelStatusGroup(group)
+	cacheKey := fmt.Sprintf("model_status:status:%s:%s:%s", modelStatusCachePart(group), modelStatusCachePart(modelName), modelStatusCachePart(window))
 	cm := cache.Get()
 	var cached map[string]interface{}
 	found, _ := cm.GetJSON(cacheKey, &cached)
-	if found {
+	if found && !noCache {
 		return cached, nil
 	}
 
@@ -131,37 +327,58 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 	//   - type=2 with completion_tokens = 0 → empty response (likely failure)
 	//   - type=5 → explicit failure (if NewAPI version supports it)
 	// This ensures correct success rate even when NewAPI doesn't log type=5 failures.
-	slotQuery := s.logDB.RebindQuery(fmt.Sprintf(`
-		SELECT FLOOR((created_at - %d) / %d) as slot_idx,
-			COUNT(*) as total,
-			SUM(CASE WHEN type = 2 AND completion_tokens > 0 THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN type = 5 THEN 1 ELSE 0 END) as failure,
-			SUM(CASE WHEN type = 2 AND completion_tokens = 0 THEN 1 ELSE 0 END) as empty
-		FROM logs
-		WHERE model_name = ?
-			AND created_at >= ? AND created_at < ?
-			AND type IN (2, 5)
-		GROUP BY FLOOR((created_at - %d) / %d)`,
-		startTime, slotSeconds,
-		startTime, slotSeconds))
-
-	rows, _ := s.logDB.Query(slotQuery, modelName, startTime, now)
+	var rows []map[string]interface{}
+	if group == "all" {
+		var err error
+		rows, err = s.queryModelStatusRows(modelName, startTime, now, slotSeconds, nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		tokenIDs, err := s.tokenIDsForGroup(group)
+		if err != nil {
+			return nil, err
+		}
+		slotTotals := map[int64]*modelStatusSlotInfo{}
+		for _, chunk := range chunkInt64s(tokenIDs, 500) {
+			chunkRows, err := s.queryModelStatusRows(modelName, startTime, now, slotSeconds, chunk)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range chunkRows {
+				idx := toInt64(row["slot_idx"])
+				info := slotTotals[idx]
+				if info == nil {
+					info = &modelStatusSlotInfo{}
+					slotTotals[idx] = info
+				}
+				info.total += toInt64(row["total"])
+				info.success += toInt64(row["success"])
+				info.failure += toInt64(row["failure"])
+				info.empty += toInt64(row["empty"])
+			}
+		}
+		rows = make([]map[string]interface{}, 0, len(slotTotals))
+		for idx, info := range slotTotals {
+			rows = append(rows, map[string]interface{}{
+				"slot_idx": idx,
+				"total":    info.total,
+				"success":  info.success,
+				"failure":  info.failure,
+				"empty":    info.empty,
+			})
+		}
+	}
 
 	// Initialize all slots with zeros
-	type slotInfo struct {
-		total   int64
-		success int64
-		failure int64
-		empty   int64
-	}
-	slotMap := make(map[int64]*slotInfo, numSlots)
+	slotMap := make(map[int64]*modelStatusSlotInfo, numSlots)
 
 	// Fill in actual data from query results
 	if rows != nil {
 		for _, row := range rows {
 			idx := toInt64(row["slot_idx"])
 			if idx >= 0 && idx < int64(numSlots) {
-				slotMap[idx] = &slotInfo{
+				slotMap[idx] = &modelStatusSlotInfo{
 					total:   toInt64(row["total"]),
 					success: toInt64(row["success"]),
 					failure: toInt64(row["failure"]),
@@ -226,6 +443,7 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 		"model_name":     modelName,
 		"display_name":   modelName,
 		"time_window":    window,
+		"group":          group,
 		"total_requests": totalReqs,
 		"success_count":  totalSuccess,
 		"failure_count":  totalFailure,
@@ -240,10 +458,10 @@ func (s *ModelStatusService) GetModelStatus(modelName, window string) (map[strin
 }
 
 // GetMultipleModelsStatus returns status for multiple models
-func (s *ModelStatusService) GetMultipleModelsStatus(modelNames []string, window string) ([]map[string]interface{}, error) {
+func (s *ModelStatusService) GetMultipleModelsStatus(modelNames []string, window, group string, noCache bool) ([]map[string]interface{}, error) {
 	results := make([]map[string]interface{}, 0, len(modelNames))
 	for _, name := range modelNames {
-		status, err := s.GetModelStatus(name, window)
+		status, err := s.GetModelStatus(name, window, group, noCache)
 		if err != nil {
 			continue
 		}
@@ -253,8 +471,8 @@ func (s *ModelStatusService) GetMultipleModelsStatus(modelNames []string, window
 }
 
 // GetAllModelsStatus returns status for all models that have requests
-func (s *ModelStatusService) GetAllModelsStatus(window string) ([]map[string]interface{}, error) {
-	models, err := s.GetAvailableModels()
+func (s *ModelStatusService) GetAllModelsStatus(window, group string, noCache bool) ([]map[string]interface{}, error) {
+	models, err := s.GetAvailableModels(group, noCache)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +484,7 @@ func (s *ModelStatusService) GetAllModelsStatus(window string) ([]map[string]int
 		}
 	}
 
-	return s.GetMultipleModelsStatus(names, window)
+	return s.GetMultipleModelsStatus(names, window, group, noCache)
 }
 
 // GetTokenGroups 返回令牌分组列表及其关联的模型（基于 abilities 表）
@@ -278,17 +496,15 @@ func (s *ModelStatusService) GetTokenGroups() ([]map[string]interface{}, error) 
 		return cached, nil
 	}
 
-	// 从 abilities 表获取分组及其模型列表（abilities 表定义了 group-model-channel 的映射）
-	// 注意：不再过滤 c.status = 1，否则 ManuallyDisabled / AutoDisabled 的渠道会
-	// 让分组里临时不可用的模型从下拉中消失，与用户"这个分组本来就有这个模型"的心智不符。
-	groupCol := s.getGroupCol()
+	groupExpr := s.normalizedTokenGroupExpr("")
 	query := s.db.RebindQuery(fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(a.%s, ''), 'default') as group_name,
-			COUNT(DISTINCT a.model) as model_count
-		FROM abilities a
-		INNER JOIN channels c ON c.id = a.channel_id
-		GROUP BY COALESCE(NULLIF(a.%s, ''), 'default')
-		ORDER BY model_count DESC`, groupCol, groupCol))
+		SELECT %s as group_name,
+			COUNT(*) as token_count,
+			SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active_count
+		FROM tokens
+		WHERE deleted_at IS NULL
+		GROUP BY %s
+		ORDER BY token_count DESC`, groupExpr, groupExpr))
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -297,35 +513,26 @@ func (s *ModelStatusService) GetTokenGroups() ([]map[string]interface{}, error) 
 
 	// 一次性读出 NewAPI 的分组描述（UserUsableGroups）和倍率（GroupRatio）
 	descMap, ratioMap := s.loadGroupMetadata()
+	startTime := time.Now().Unix() - 86400
 
-	// 为每个分组获取其模型列表
 	results := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
 		groupName := fmt.Sprintf("%v", row["group_name"])
-
-		modelsQuery := s.db.RebindQuery(fmt.Sprintf(`
-			SELECT DISTINCT a.model as model_name
-			FROM abilities a
-			INNER JOIN channels c ON c.id = a.channel_id
-			WHERE COALESCE(NULLIF(a.%s, ''), 'default') = ?
-			ORDER BY a.model`, groupCol))
-
-		modelRows, err := s.db.Query(modelsQuery, groupName)
-		if err != nil {
-			continue
+		if groupName == "" || groupName == "<nil>" {
+			groupName = "default"
 		}
 
-		modelNames := make([]string, 0, len(modelRows))
-		for _, mr := range modelRows {
-			if name, ok := mr["model_name"].(string); ok && name != "" {
-				modelNames = append(modelNames, name)
-			}
+		modelNames, err := s.groupModelsFromLogs(groupName, startTime)
+		if err != nil {
+			modelNames = []string{}
 		}
 
 		entry := map[string]interface{}{
-			"group_name":  groupName,
-			"model_count": row["model_count"],
-			"models":      modelNames,
+			"group_name":   groupName,
+			"token_count":  row["token_count"],
+			"active_count": row["active_count"],
+			"model_count":  len(modelNames),
+			"models":       modelNames,
 		}
 		if d, ok := descMap[groupName]; ok && d != "" && d != groupName {
 			entry["description"] = d

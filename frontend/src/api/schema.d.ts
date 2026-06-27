@@ -2351,7 +2351,14 @@ export interface paths {
         /** [公开] 获取可用模型列表 */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2390,6 +2397,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -2429,6 +2442,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path: {
@@ -2471,6 +2490,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -2512,6 +2537,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -2557,6 +2588,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -2630,7 +2667,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 获取嵌入状态页令牌分组 */
+        /** 获取令牌计费分组 */
         get: {
             parameters: {
                 query?: never;
@@ -4480,7 +4517,14 @@ export interface paths {
         /** [公开] 获取可用模型列表 */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -4519,6 +4563,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -4558,6 +4608,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path: {
@@ -4602,6 +4658,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -4639,7 +4701,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 获取嵌入状态页令牌分组 */
+        /** 获取令牌计费分组 */
         get: {
             parameters: {
                 query?: never;
@@ -4714,7 +4776,14 @@ export interface paths {
         /** 获取可用模型列表 */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -4809,6 +4878,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 (1h/6h/12h/24h) */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -4848,6 +4923,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 (1h/6h/12h/24h) */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path: {
@@ -4890,6 +4971,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 (1h/6h/12h/24h) */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -4931,6 +5018,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 (1h/6h/12h/24h) */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -4976,6 +5069,12 @@ export interface paths {
                 query?: {
                     /** @description 时间窗口 (1h/6h/12h/24h) */
                     window?: string;
+                    /** @description 令牌分组（tokens.group），为空或 all 表示全局统计 */
+                    group?: string;
+                    /** @description 令牌分组别名；group 为空时生效 */
+                    token_group?: string;
+                    /** @description 是否跳过模型状态缓存 */
+                    no_cache?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -5049,7 +5148,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 获取模型状态令牌分组 */
+        /** 获取模型状态令牌计费分组 */
         get: {
             parameters: {
                 query?: never;

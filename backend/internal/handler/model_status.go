@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -87,6 +88,18 @@ func RegisterModelStatusEmbedRoutes(r *gin.Engine) {
 	}
 }
 
+func modelStatusGroup(c *gin.Context) string {
+	group := c.Query("group")
+	if group == "" {
+		group = c.Query("token_group")
+	}
+	return group
+}
+
+func modelStatusNoCache(c *gin.Context) bool {
+	return c.Query("no_cache") == "true" || c.Query("no_cache") == "1"
+}
+
 // GET /time-windows
 func GetTimeWindows(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
@@ -99,7 +112,7 @@ func GetTimeWindows(c *gin.Context) {
 // GET /models
 func GetAvailableModels(c *gin.Context) {
 	svc := service.NewModelStatusService()
-	data, err := svc.GetAvailableModels()
+	data, err := svc.GetAvailableModels(modelStatusGroup(c), modelStatusNoCache(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResp("QUERY_ERROR", err.Error(), ""))
 		return
@@ -113,7 +126,7 @@ func GetSingleModelStatus(c *gin.Context) {
 	window := c.DefaultQuery("window", service.DefaultTimeWindow)
 
 	svc := service.NewModelStatusService()
-	data, err := svc.GetModelStatus(modelName, window)
+	data, err := svc.GetModelStatus(modelName, window, modelStatusGroup(c), modelStatusNoCache(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResp("QUERY_ERROR", err.Error(), ""))
 		return
@@ -123,15 +136,43 @@ func GetSingleModelStatus(c *gin.Context) {
 
 // POST /status/multiple
 func GetMultipleModelsStatusHandler(c *gin.Context) {
-	var modelNames []string
-	if err := c.ShouldBindJSON(&modelNames); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Expected array of model names", err.Error()))
+	raw, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Invalid request", err.Error()))
 		return
 	}
+
+	var req struct {
+		Models     []string `json:"models"`
+		Group      string   `json:"group"`
+		TokenGroup string   `json:"token_group"`
+	}
+	var modelNames []string
+	bodyGroup := ""
+	if json.Unmarshal(raw, &req) == nil && len(req.Models) > 0 {
+		modelNames = req.Models
+		if req.Group != "" {
+			bodyGroup = req.Group
+		} else {
+			bodyGroup = req.TokenGroup
+		}
+	} else {
+		var arr []string
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResp("INVALID_PARAMS", "Expected array of model names", err.Error()))
+			return
+		}
+		modelNames = arr
+	}
+
 	window := c.DefaultQuery("window", service.DefaultTimeWindow)
+	group := modelStatusGroup(c)
+	if group == "" {
+		group = bodyGroup
+	}
 
 	svc := service.NewModelStatusService()
-	data, err := svc.GetMultipleModelsStatus(modelNames, window)
+	data, err := svc.GetMultipleModelsStatus(modelNames, window, group, modelStatusNoCache(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResp("QUERY_ERROR", err.Error(), ""))
 		return
@@ -140,6 +181,7 @@ func GetMultipleModelsStatusHandler(c *gin.Context) {
 		"success":     true,
 		"data":        data,
 		"time_window": window,
+		"group":       group,
 		"cache_ttl":   60,
 	})
 }
@@ -147,9 +189,10 @@ func GetMultipleModelsStatusHandler(c *gin.Context) {
 // GET /status/all
 func GetAllModelsStatusHandler(c *gin.Context) {
 	window := c.DefaultQuery("window", service.DefaultTimeWindow)
+	group := modelStatusGroup(c)
 
 	svc := service.NewModelStatusService()
-	data, err := svc.GetAllModelsStatus(window)
+	data, err := svc.GetAllModelsStatus(window, group, modelStatusNoCache(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResp("QUERY_ERROR", err.Error(), ""))
 		return
@@ -158,6 +201,7 @@ func GetAllModelsStatusHandler(c *gin.Context) {
 		"success":     true,
 		"data":        data,
 		"time_window": window,
+		"group":       group,
 		"cache_ttl":   60,
 	})
 }
