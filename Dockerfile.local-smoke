@@ -1,0 +1,9 @@
+FROM docker.1ms.run/library/redis:7-alpine
+
+WORKDIR /app
+ENV SERVER_HOST=0.0.0.0 \
+    SERVER_PORT=8000
+COPY newapi-tools /app/newapi-tools
+RUN chmod +x /app/newapi-tools && mkdir -p /app/data
+EXPOSE 8000
+CMD ["/app/newapi-tools"]

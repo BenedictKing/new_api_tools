@@ -1,0 +1,6 @@
+services:
+  postgres:
+    image: docker.1ms.run/library/postgres:16-alpine
+
+  redis:
+    image: docker.1ms.run/library/redis:7-alpine
